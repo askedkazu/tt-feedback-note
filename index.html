@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>卓球フィードバックノート</title>
+  <meta name="apple-mobile-web-app-title" content="卓球ノート" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <meta name="theme-color" content="#ffffff" />
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="app-bg text-slate-800 min-h-screen">
+  <div class="max-w-md mx-auto min-h-screen relative">
+
+    <!-- ===== ヘッダー ===== -->
+    <header class="app-header">
+      <button id="flowCloseBtn" class="hidden icon-btn" aria-label="閉じる">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+      <h1 id="headerTitle" class="text-base font-bold flex-1">ホーム</h1>
+    </header>
+
+    <!-- =====================================================
+         タブ：ホーム
+         ===================================================== -->
+    <main id="tabHome" class="tab px-4 pb-28 pt-3">
+      <section class="hero-card">
+        <p class="text-sm font-bold opacity-90" id="heroDate"></p>
+        <p class="text-xl font-extrabold mt-1">今日はどの技を練習する？</p>
+        <p class="text-sm opacity-90 mt-1">技を選ぶ → 練習 → 動画 → AIのフィードバック → 振り返り</p>
+        <button id="startBtn" class="hero-btn w-full mt-4">🏓 練習をはじめる</button>
+      </section>
+
+      <section id="homeLoginNudge" class="hidden card mt-4 flex items-center gap-3">
+        <span class="text-2xl">☁️</span>
+        <p class="text-sm flex-1">ログインすると、記録が保存されてスマホとPCで見られます</p>
+        <button id="homeLoginBtn" class="btn-primary text-sm whitespace-nowrap">ログイン</button>
+      </section>
+
+      <section class="grid grid-cols-3 gap-3 mt-4">
+        <div class="stat-card"><p class="stat-label">練習の記録</p><p class="stat-value"><span id="statCount">0</span><small>回</small></p></div>
+        <div class="stat-card"><p class="stat-label">今月</p><p class="stat-value"><span id="statMonth">0</span><small>回</small></p></div>
+        <div class="stat-card"><p class="stat-label">練習した技</p><p class="stat-value"><span id="statTechs">0</span><small>種</small></p></div>
+      </section>
+
+      <!-- 最近の課題（直近のフィードバックの「直す点」） -->
+      <section id="focusCard" class="hidden card mt-4">
+        <p class="section-title">📌 いまの課題</p>
+        <div id="focusList" class="mt-2 space-y-2"></div>
+      </section>
+
+      <section class="mt-6">
+        <div class="flex items-center justify-between mb-2">
+          <p class="section-title">最近の練習</p>
+          <button class="link-btn" data-goto="record">すべて見る</button>
+        </div>
+        <div id="recentList" class="space-y-2"></div>
+      </section>
+
+      <section class="mt-6">
+        <p class="section-title mb-2">バッジ</p>
+        <div id="badgeGrid" class="grid grid-cols-4 gap-2"></div>
+      </section>
+    </main>
+
+    <!-- =====================================================
+         タブ：図鑑
+         ===================================================== -->
+    <main id="tabBook" class="tab hidden px-4 pb-28 pt-3">
+      <p class="text-xs text-slate-500 mb-3">右利き・シェークハンドを基準に書いています。タップでコツ・よくあるミス・自分の記録が見られます。</p>
+      <div id="bookList" class="space-y-5"></div>
+    </main>
+
+    <!-- =====================================================
+         タブ：記録
+         ===================================================== -->
+    <main id="tabRecord" class="tab hidden px-4 pb-28 pt-3">
+      <section class="card">
+        <p class="section-title">フォーム点の推移</p>
+        <p class="text-xs text-slate-500 mt-1">AIのチェック項目の評価（◎=100・○=67・△=33）の平均</p>
+        <div id="chartTechChips" class="flex gap-2 overflow-x-auto no-scrollbar mt-3 pb-1"></div>
+        <div id="chartBox" class="mt-2"></div>
+      </section>
+      <section class="mt-6">
+        <div class="flex items-center justify-between mb-2">
+          <p class="section-title">練習の記録</p>
+          <select id="recordFilter" class="input text-xs py-1"></select>
+        </div>
+        <div id="recordList" class="space-y-2"></div>
+      </section>
+    </main>
+
+    <!-- =====================================================
+         タブ：設定
+         ===================================================== -->
+    <main id="tabSettings" class="tab hidden px-4 pb-28 pt-3 space-y-4">
+      <section id="accountBar" class="card flex items-center gap-3">
+        <div class="avatar" id="accountAvatar">?</div>
+        <div class="flex-1 min-w-0">
+          <p id="accountName" class="font-bold text-sm truncate">ログインしていません</p>
+          <p id="accountNote" class="text-xs text-slate-500">ログインすると記録が保存されます</p>
+        </div>
+        <button id="loginBtn" class="btn-primary text-sm">ログイン</button>
+        <button id="logoutBtn" class="hidden btn-ghost text-sm">ログアウト</button>
+      </section>
+
+      <section class="card">
+        <p class="text-sm font-bold">🏓 プロフィール</p>
+        <p class="text-xs text-slate-500 mt-1">AIがフィードバックするときの前提になります</p>
+        <div class="grid grid-cols-2 gap-3 mt-3">
+          <label class="field-mini">利き手
+            <select id="pfHand" class="input w-full mt-1">
+              <option value="右">右利き</option>
+              <option value="左">左利き</option>
+            </select>
+          </label>
+          <label class="field-mini">グリップ
+            <select id="pfGrip" class="input w-full mt-1">
+              <option>シェークハンド</option>
+              <option>日本式ペン</option>
+              <option>中国式ペン</option>
+            </select>
+          </label>
+          <label class="field-mini">ラバー
+            <select id="pfRubber" class="input w-full mt-1">
+              <option>両面裏ソフト</option>
+              <option>フォア裏・バック表</option>
+              <option>フォア裏・バック粒高</option>
+              <option>その他</option>
+            </select>
+          </label>
+          <label class="field-mini">戦型
+            <select id="pfStyle" class="input w-full mt-1">
+              <option>ドライブ型</option>
+              <option>前陣速攻型</option>
+              <option>オールラウンド型</option>
+              <option>カット型</option>
+            </select>
+          </label>
+          <label class="field-mini col-span-2">レベル
+            <select id="pfLevel" class="input w-full mt-1">
+              <option>初心者（ラリーが続くくらい）</option>
+              <option>中級（ドライブ・サーブを練習中）</option>
+              <option>上級（試合で勝ち上がる）</option>
+            </select>
+          </label>
+          <label class="field-mini col-span-2">いまの目標・悩み（任意）
+            <textarea id="pfGoal" rows="2" maxlength="200" class="input w-full mt-1" placeholder="例：バックドライブが安定しない／次の大会でベスト8"></textarea>
+          </label>
+        </div>
+        <p id="profileSaved" class="text-xs text-emerald-600 mt-2 h-4"></p>
+      </section>
+
+      <section class="card text-sm text-slate-600 space-y-2">
+        <p class="text-sm font-bold text-slate-800">🔒 データについて</p>
+        <p>動画そのものは保存しません。動画から切り出した静止画（小さく縮めたもの）と、AIのフィードバック・振り返りだけを、あなたのアカウント（Firebase）に保存します。</p>
+        <p>AIのフィードバックには Google Gemini を使います。送るのは切り出した静止画・選んだ技と意識ポイント・プロフィール・振り返りの文章です。</p>
+      </section>
+
+      <p class="text-center text-xs text-slate-400 pt-2">卓球フィードバックノート</p>
+    </main>
+
+    <!-- =====================================================
+         練習の流れ（技を選ぶ → 動画 → AI → 振り返り → 完了）
+         ===================================================== -->
+    <main id="tabFlow" class="tab hidden px-4 pb-10 pt-3">
+      <ol class="flex items-center justify-between text-xs mb-4" id="stepper">
+        <li class="step" data-step="1"><span>1</span>技</li>
+        <li class="step-line"></li>
+        <li class="step" data-step="2"><span>2</span>動画</li>
+        <li class="step-line"></li>
+        <li class="step" data-step="3"><span>3</span>AI</li>
+        <li class="step-line"></li>
+        <li class="step" data-step="4"><span>4</span>振り返り</li>
+      </ol>
+
+      <!-- STEP1：技を選ぶ -->
+      <section id="flowPick" class="screen">
+        <div class="card">
+          <p class="field-label">今日練習する技</p>
+          <div id="pickTechList" class="space-y-3"></div>
+        </div>
+        <div id="pickFocusCard" class="hidden card mt-4">
+          <p class="field-label">意識するポイント（1〜2個）</p>
+          <div id="pickFocusList" class="space-y-2"></div>
+          <input id="pickFocusFree" type="text" maxlength="60" class="input w-full mt-2" placeholder="自分で書く（任意）例：打ったらすぐ戻る" />
+          <div id="pickLastFix" class="hidden mt-3 text-xs bg-amber-50 text-amber-800 rounded-lg p-2"></div>
+        </div>
+        <button id="pickNextBtn" class="btn-primary btn-cta w-full mt-5" disabled>練習してきた！動画へ進む</button>
+      </section>
+
+      <!-- STEP2：動画 -->
+      <section id="flowVideo" class="screen hidden">
+        <div class="card">
+          <p class="field-label">練習の動画を撮る・選ぶ</p>
+          <p id="filmTip" class="text-xs text-slate-600 bg-sky-50 rounded-lg p-2"></p>
+          <div class="grid grid-cols-2 gap-2 mt-3">
+            <label class="btn-primary text-center py-3 cursor-pointer">🎥 撮影する
+              <input id="videoCapture" type="file" accept="video/*" capture="environment" class="file-input-hidden" />
+            </label>
+            <label class="btn-ghost text-center py-3 cursor-pointer">🖼️ 選ぶ
+              <input id="videoPick" type="file" accept="video/*" class="file-input-hidden" />
+            </label>
+          </div>
+        </div>
+
+        <div id="videoEditor" class="hidden card mt-4">
+          <video id="videoEl" class="w-full rounded-lg bg-black" playsinline muted controls preload="auto"></video>
+          <p class="field-label mt-3">AIに見せる範囲</p>
+          <p class="text-xs text-slate-500">打っている場面で一時停止して「ここから」を押すか、つまみで動かしてください。</p>
+          <div class="flex items-center gap-2 mt-2">
+            <input id="rangeStart" type="range" min="0" max="0" step="0.1" value="0" class="flex-1 accent-sky-500" />
+            <button id="rangeHereBtn" class="btn-ghost text-xs whitespace-nowrap">ここから</button>
+          </div>
+          <div class="flex items-center gap-2 mt-2 text-sm">
+            <span class="text-slate-600">長さ</span>
+            <div id="rangeLenChips" class="flex gap-2">
+              <button class="len-chip" data-len="2">2秒</button>
+              <button class="len-chip selected" data-len="3">3秒</button>
+              <button class="len-chip" data-len="5">5秒</button>
+            </div>
+          </div>
+          <p id="rangeLabel" class="text-xs text-slate-500 mt-2"></p>
+          <div id="framePreview" class="frame-strip mt-3"></div>
+
+          <label id="compareRow" class="hidden flex items-center justify-between gap-3 text-sm mt-4 p-3 rounded-lg bg-amber-50">
+            <span>⭐ ベストの回（<span id="compareDate"></span>）と比べる</span>
+            <input id="compareToggle" type="checkbox" class="w-5 h-5 accent-amber-500 shrink-0" checked />
+          </label>
+        </div>
+
+        <p id="videoMsg" class="hidden text-sm mt-3 rounded-lg p-2 msg-error whitespace-pre-wrap"></p>
+        <button id="analyzeBtn" class="btn-primary btn-cta w-full mt-5" disabled>AIにフィードバックしてもらう</button>
+        <button id="skipVideoBtn" class="w-full mt-3 text-sm font-bold text-slate-500 underline">動画なしで振り返りだけ書く</button>
+      </section>
+
+      <!-- STEP3：AIのフィードバック -->
+      <section id="flowResult" class="screen hidden">
+        <div id="analyzing" class="card text-center py-10">
+          <div class="spinner mx-auto"></div>
+          <p class="font-bold mt-4">AIがフォームを見ています…</p>
+          <p id="analyzePhase" class="text-xs text-slate-500 mt-1"></p>
+        </div>
+        <div id="resultBody" class="hidden"></div>
+        <p id="resultMsg" class="hidden text-sm mt-3 rounded-lg p-2 msg-error whitespace-pre-wrap"></p>
+        <div id="resultActions" class="hidden">
+          <button id="toReflectBtn" class="btn-primary btn-cta w-full mt-5">振り返りを書く</button>
+        </div>
+        <div id="resultRetry" class="hidden grid grid-cols-2 gap-2 mt-4">
+          <button id="retryAnalyzeBtn" class="btn-primary py-3">もう一度試す</button>
+          <button id="retrySkipBtn" class="btn-ghost py-3">振り返りだけ書く</button>
+        </div>
+      </section>
+
+      <!-- STEP4：振り返り -->
+      <section id="flowReflect" class="screen hidden">
+        <div class="card">
+          <p class="field-label">今日の振り返り</p>
+          <p class="text-xs text-slate-500 mb-2">うまくいかなかったこと・感じたことを書くと、AIが原因と対策を考えます</p>
+          <div id="reflectChips" class="flex flex-wrap gap-2 mb-2"></div>
+          <textarea id="reflectText" rows="5" maxlength="600" class="input w-full" placeholder="例：バックドライブが浮く。下回転が強いとネットにかかる。足が止まっていた気がする"></textarea>
+          <label class="flex items-center gap-2 text-sm mt-3">
+            <span class="text-slate-600">今日の手ごたえ</span>
+            <span id="feelStars" class="flex gap-1"></span>
+          </label>
+        </div>
+        <div id="adviceBox" class="hidden mt-4"></div>
+        <p id="reflectMsg" class="hidden text-sm mt-3 rounded-lg p-2 msg-error whitespace-pre-wrap"></p>
+        <button id="adviceBtn" class="btn-primary btn-cta w-full mt-5">AIに助言をもらう</button>
+        <button id="saveBtn" class="btn-ghost w-full mt-3 py-3 font-bold">このまま記録する</button>
+      </section>
+
+      <!-- 完了 -->
+      <section id="flowDone" class="screen hidden text-center">
+        <div class="done-card">
+          <p class="text-5xl">🏓</p>
+          <p class="text-2xl font-extrabold mt-2">おつかれさま！</p>
+          <p id="doneNote" class="text-sm mt-2 opacity-90"></p>
+        </div>
+        <div id="newBadges" class="hidden card mt-4"></div>
+        <button id="doneBtn" class="btn-primary btn-cta w-full mt-5">ホームに戻る</button>
+      </section>
+    </main>
+
+    <!-- ===== 下のタブバー ===== -->
+    <nav id="tabBar" class="tab-bar">
+      <button class="tab-btn" data-tab="home">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>
+        <span>ホーム</span>
+      </button>
+      <button class="tab-btn" data-tab="book">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2zM4 21V5M8 7h7"/></svg>
+        <span>図鑑</span>
+      </button>
+      <button class="tab-btn" data-tab="record">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V5M4 19h16M8 15l3-4 3 2 5-6"/></svg>
+        <span>記録</span>
+      </button>
+      <button class="tab-btn" data-tab="settings">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path stroke-linecap="round" d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>
+        <span>設定</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- 技の詳細 -->
+  <div id="techModal" class="hidden modal-backdrop">
+    <section class="modal-sheet">
+      <div class="flex items-center justify-between mb-2">
+        <h2 id="techTitle" class="font-bold text-lg"></h2>
+        <button class="icon-btn modal-close" aria-label="閉じる">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div id="techBody"></div>
+      <button id="techStartBtn" class="btn-primary w-full py-3 mt-5">この技を練習する</button>
+    </section>
+  </div>
+
+  <!-- 記録の詳細 -->
+  <div id="sessionModal" class="hidden modal-backdrop">
+    <section class="modal-sheet">
+      <div class="flex items-center justify-between mb-2">
+        <h2 id="sessionTitle" class="font-bold text-lg"></h2>
+        <button class="icon-btn modal-close" aria-label="閉じる">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div id="sessionBody"></div>
+      <div class="grid grid-cols-2 gap-2 mt-5">
+        <button id="bestBtn" class="btn-best py-3"></button>
+        <button id="deleteBtn" class="btn-ghost py-3 text-rose-600">記録を消す</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- ログイン -->
+  <div id="authModal" class="hidden modal-backdrop">
+    <section class="modal-sheet">
+      <div class="flex items-center justify-between mb-3">
+        <h2 id="authTitle" class="font-bold text-lg">ログイン</h2>
+        <button class="icon-btn modal-close" aria-label="閉じる">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <button id="authGoogleBtn" class="google-btn w-full">
+        <svg class="w-5 h-5" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
+        Googleでログイン
+      </button>
+      <div class="divider"><span>またはメールアドレスで</span></div>
+      <form id="authForm" class="space-y-2" novalidate>
+        <input id="authEmail" type="email" autocomplete="email" inputmode="email" placeholder="メールアドレス" class="input w-full" />
+        <input id="authPassword" type="password" autocomplete="current-password" placeholder="パスワード" class="input w-full" />
+        <button id="authSubmitBtn" type="submit" class="btn-primary w-full py-3">メールアドレスでログイン</button>
+      </form>
+      <p class="text-xs text-slate-500 mt-2">「ちょいステップ習慣」と同じアカウントでログインできます。</p>
+      <p id="authMsg" class="hidden text-sm mt-2 rounded-lg p-2"></p>
+    </section>
+  </div>
+
+  <canvas id="workCanvas" class="hidden"></canvas>
+
+  <script src="firebase-config.js"></script>
+  <script src="techniques.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
