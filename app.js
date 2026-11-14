@@ -139,7 +139,7 @@
    * ========================================================== */
   function renderHome() {
     const now = new Date();
-    el.heroDate.textContent = `${now.getMonth() + 1}月${now.getDate()}日（${WEEK[now.getDay()]}）`;
+    el.heroDate.textContent = `${now.getMonth() + 1}/${now.getDate()} ${["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][now.getDay()]} ・ PRACTICE`;
     const s = state.sessions;
     el.statCount.textContent = s.length;
     el.statMonth.textContent = s.filter((x) => {
