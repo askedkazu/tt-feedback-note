@@ -447,6 +447,72 @@ body {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ---------- ボールの軌道（3D） ---------- */
+.traj-open-btn {
+  display: block;
+  width: 100%;
+  margin-top: 0.75rem;
+  padding: 0.8rem 1rem;
+  border-radius: 0.9rem;
+  text-align: left;
+  font-weight: 800;
+  color: #fff;
+  background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
+}
+.traj-open-btn span { display: block; font-size: 0.72rem; font-weight: 600; opacity: 0.8; margin-top: 0.1rem; }
+.traj-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  background: #0f172a;
+  color: #e2e8f0;
+  animation: fadeIn 0.2s ease-out;
+}
+.traj-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: calc(0.6rem + env(safe-area-inset-top)) 1rem 0.6rem;
+}
+.traj-close { width: 2.25rem; height: 2.25rem; border-radius: 9999px; background: rgba(255, 255, 255, 0.1); font-size: 1rem; }
+.traj-title { font-weight: 800; }
+.traj-sub { font-size: 0.75rem; color: #94a3b8; }
+.traj-stage { position: relative; flex: 1; min-height: 0; }
+.traj-stage canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+.traj-clock {
+  position: absolute;
+  right: 0.75rem;
+  top: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+}
+.traj-panel {
+  padding: 0.75rem 1rem calc(0.9rem + env(safe-area-inset-bottom));
+  background: #111c33;
+  border-top: 1px solid #1e293b;
+  display: grid;
+  gap: 0.6rem;
+  max-width: 28rem;
+  width: 100%;
+  margin: 0 auto;
+}
+.traj-note { font-size: 0.85rem; font-weight: 700; color: #fde68a; }
+.traj-row { display: flex; align-items: center; gap: 0.6rem; font-size: 0.8rem; }
+.traj-label { color: #94a3b8; font-weight: 700; white-space: nowrap; }
+.traj-play { padding: 0 0.7rem; height: 2.25rem; white-space: nowrap; font-size: 0.8rem; border-radius: 0.6rem; background: #f59e0b; color: #0f172a; font-weight: 800; }
+.traj-seg { display: flex; flex: 1; background: rgba(255, 255, 255, 0.08); border-radius: 0.6rem; padding: 0.15rem; }
+.traj-seg button { flex: 1; padding: 0.4rem 0; border-radius: 0.45rem; font-weight: 700; color: #cbd5e1; font-size: 0.8rem; }
+.traj-seg button.on { background: #fff; color: #0f172a; }
+.traj-check input { width: 1.1rem; height: 1.1rem; accent-color: #94a3b8; }
+.traj-swatch { display: inline-block; width: 1.4rem; border-top: 2px dashed #94a3b8; vertical-align: middle; margin-right: 0.35rem; }
+.traj-rec { padding: 0.6rem; border-radius: 0.7rem; background: rgba(255, 255, 255, 0.1); font-weight: 700; font-size: 0.85rem; }
+.traj-rec:disabled { color: #fca5a5; }
+.traj-foot { font-size: 0.68rem; color: #64748b; }
+
 /* ファイル選択の入力欄（display:none だと一部のスマホでラベルのタップに反応しない） */
 .file-input-hidden {
   position: absolute;

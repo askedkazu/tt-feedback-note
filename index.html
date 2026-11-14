@@ -12,6 +12,15 @@
   <meta name="theme-color" content="#ffffff" />
   <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <link rel="stylesheet" href="style.css" />
+  <!-- 3Dの軌道表示で使う three.js（ボタンを押したときだけ読み込む） -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
 </head>
 <body class="app-bg text-slate-800 min-h-screen">
   <div class="max-w-md mx-auto min-h-screen relative">

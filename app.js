@@ -56,6 +56,7 @@
     flow: null,
     openSessionId: null,
     framesCache: new Map(), // sessionId -> 保存した連続写真
+    shotIds: new Set(), // 3Dの軌道が見られる技
   };
 
   /* ==========================================================
@@ -269,6 +270,7 @@
     el.techBody.innerHTML = `
       <div class="tech-body">
         <p class="text-sm text-slate-600">${escapeHtml(t.summary)}</p>
+        ${state.shotIds.has(t.id) ? `<button class="traj-open-btn" data-traj="${t.id}">🎥 ボールの軌道を3Dで見る<span>回転でどう曲がるか・スロー再生・動画で保存</span></button>` : ""}
         ${
           mine.length
             ? `<div class="grid grid-cols-3 gap-2 mt-3">
@@ -1315,6 +1317,8 @@ ${text}
         openSession(s.dataset.session);
         return;
       }
+      const tr = e.target.closest("[data-traj]");
+      if (tr) return openTrajectory(tr.dataset.traj, tr);
       const t = e.target.closest("[data-tech]");
       if (t) return openTech(t.dataset.tech);
       const g = e.target.closest("[data-goto]");
@@ -1422,6 +1426,25 @@ ${text}
   }
 
   /* ==========================================================
+   * ボールの軌道（3D）。three.js は重いので、ボタンを押したときに読み込む
+   * ========================================================== */
+  async function openTrajectory(techId, btn) {
+    const label = btn.innerHTML;
+    btn.disabled = true;
+    btn.textContent = "3Dを準備中…";
+    try {
+      const mod = await import("./trajectory-view.js");
+      mod.openTrajectory(techById[techId]);
+    } catch (err) {
+      console.error(err);
+      alert(`3Dの表示を読み込めませんでした。通信を確認してください。\n${err.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = label;
+    }
+  }
+
+  /* ==========================================================
    * 起動
    * ========================================================== */
   bindEvents();
@@ -1429,4 +1452,7 @@ ${text}
   setAccountUI(null);
   showTab("home");
   initCloud();
+  import("./physics.js")
+    .then((m) => (state.shotIds = new Set(Object.keys(m.SHOTS))))
+    .catch((err) => console.error(err));
 })();
