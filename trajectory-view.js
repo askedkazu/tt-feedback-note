@@ -1,7 +1,8 @@
 /* ==========================================================
    ボールの軌道を3Dで見る画面（three.js）
    - physics.js で計算した軌道を、台・ネット・選手と一緒に再生する
-   - 選手（右利き）は技ごとにスイングし、打った瞬間にラケットがボールの位置に来る
+   - 選手は技ごとにスイングし、打った瞬間にラケットがボールの位置に来る
+   - 計算はすべて右利きで行い、左利きのときは表示するときに左右を反転する（物理は左右対称なので、そのまま正しい軌道になる）
    - 「インパクト」視点：打球の瞬間を拡大・超スローにして、ラケットの角度とこする向きを見せる
    - スロー再生、視点の切り替え、回転なしの軌道との比較、動画として保存
    ========================================================== */
@@ -10,7 +11,15 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { SHOTS, TABLE, solveShot, simulate, contactRacket } from "./physics.js";
 
 // 物理の座標（x:長さ, y:横, z:高さ）→ three.js の座標（y が上）
-const toV3 = (p) => new THREE.Vector3(p[0], p[2], -p[1]);
+// 左利きのときは MIRROR = -1 にして、横方向（物理の y）を反転して表示する
+let MIRROR = 1;
+const toV3 = (p) => new THREE.Vector3(p[0], p[2], -p[1] * MIRROR);
+// 回転の軸（軸性ベクトル）は、鏡に映すと向きが逆になる
+const toAxis = (w) => toV3(w).multiplyScalar(MIRROR);
+// 説明の文の「右」「左」を入れかえる（左利き用）
+export const swapLR = (text) =>
+  String(text).replace(/左右/g, "\0").replace(/[右左]/g, (c) => (c === "右" ? "左" : "右")).replace(/\0/g, "左右");
+const lr = (text) => (MIRROR < 0 ? swapLR(text) : text);
 
 /* ---------- 小さなベクトル計算（物理の座標のまま使う） ---------- */
 const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -79,10 +88,11 @@ export const hasShot = (techId) => !!SHOTS[techId];
 let current = null; // 開いている画面（1つだけ）
 
 /** 図鑑の技を開く */
-export function openTrajectory(tech) {
+export function openTrajectory(tech, { lefty = false } = {}) {
   const shot = SHOTS[tech.id];
   if (!shot) return;
   closeTrajectory();
+  MIRROR = lefty ? -1 : 1;
   current = new TrajectoryView({ title: `${tech.icon} ${tech.name}`, shot, solved: solveShot(shot) });
 }
 
@@ -90,8 +100,9 @@ export function openTrajectory(tech) {
  * 打球を自分で決めて開く（スマホのスイングから作った打球など）
  * shot: { p0, v0, spin, stroke, note }
  */
-export function openCustomShot({ title, shot, contact = null, startView = "back" }) {
+export function openCustomShot({ title, shot, contact = null, startView = "back", lefty = false }) {
   closeTrajectory();
+  MIRROR = lefty ? -1 : 1;
   const w0 = shot.spin.map((n) => n * 2 * Math.PI);
   const solved = {
     v0: shot.v0,
@@ -373,7 +384,7 @@ class TrajectoryView {
       .join("・") || "回転ほぼなし";
     const c = this.contact;
     const face = c.faceDeg < -3 ? `かぶせる ${Math.round(-c.faceDeg)}°` : c.faceDeg > 3 ? `ひらく ${Math.round(c.faceDeg)}°` : "ほぼ垂直";
-    const lateral = Math.abs(c.swing[1]) > 0.4 ? (c.swing[1] > 0 ? "右→左へ" : "左→右へ") : "";
+    const lateral = Math.abs(c.swing[1]) > 0.4 ? lr(c.swing[1] > 0 ? "右→左へ" : "左→右へ") : "";
     const vertical = c.swingDeg > 8 ? `上へ ${Math.round(c.swingDeg)}°` : c.swingDeg < -8 ? `下へ ${Math.round(-c.swingDeg)}°` : "まっすぐ前へ";
     const root = document.createElement("div");
     root.className = "traj-overlay";
@@ -387,7 +398,7 @@ class TrajectoryView {
       </div>
       <div class="traj-stage"><canvas></canvas><p class="traj-clock"></p></div>
       <div class="traj-panel">
-        ${s.note ? `<p class="traj-note">${s.note}</p>` : ""}
+        ${s.note ? `<p class="traj-note">${lr(s.note)}</p>` : ""}
         <div class="traj-racket">
           <span><b>ラケット面</b>${face}</span>
           <span><b>スイング</b>${lateral}${lateral && vertical !== "まっすぐ前へ" ? "・" : ""}${lateral && vertical === "まっすぐ前へ" ? "" : vertical}</span>
@@ -404,7 +415,7 @@ class TrajectoryView {
           <span><span class="traj-swatch"></span>回転なしだとこう飛ぶ（比較）</span>
         </label>
         <button class="traj-rec">🎬 動画として保存</button>
-        <p class="traj-foot">数値は物理計算による例です（右利き）。指でぐるっと回したり、2本指で拡大したりできます。</p>
+        <p class="traj-foot">数値は物理計算による例です（${MIRROR < 0 ? "左利き" : "右利き"}）。指でぐるっと回したり、2本指で拡大したりできます。</p>
       </div>`;
     document.body.appendChild(root);
     document.body.style.overflow = "hidden";
@@ -459,8 +470,8 @@ class TrajectoryView {
       const v = VIEWS[key];
       // 縦長の画面（スマホ）では台が入りきるように、カメラを遠ざける
       const far = Math.min(2.4, Math.max(1, 1.2 / this.camera.aspect));
-      target = new THREE.Vector3(...v.target);
-      pos = new THREE.Vector3(...v.pos).sub(target).multiplyScalar(key === "top" ? Math.max(1, far * 0.8) : far).add(target);
+      target = new THREE.Vector3(v.target[0], v.target[1], v.target[2] * MIRROR);
+      pos = new THREE.Vector3(v.pos[0], v.pos[1], v.pos[2] * MIRROR).sub(target).multiplyScalar(key === "top" ? Math.max(1, far * 0.8) : far).add(target);
     }
     this.camera.position.copy(pos);
     this.controls.target.copy(target);
@@ -568,7 +579,7 @@ class TrajectoryView {
     // 回転の向き：回転の軸のまわりをまわる矢印
     const w = this.shot.spin;
     if (len(w) > 0.5) {
-      const axis = toV3(unit(w)).normalize();
+      const axis = toAxis(unit(w)).normalize();
       const spinMark = new THREE.Group();
       const arc = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.004, 8, 40, Math.PI * 1.5), new THREE.MeshBasicMaterial({ color: 0x38bdf8 }));
       spinMark.add(arc);
@@ -709,7 +720,7 @@ class TrajectoryView {
       this.main.trail.geometry.setDrawRange(0, s.i + 1);
       this.main.marks.forEach((m) => (m.ring.visible = t >= m.t));
       // 回転：本当の回転の向きで、見える速さに落として回す
-      const w = toV3(s.w);
+      const w = toAxis(s.w);
       const wLen = w.length();
       if (wLen > 1e-6 && this.playing) {
         const visual = Math.min((wLen / (2 * Math.PI)) * this.rate, MAX_VISUAL_SPIN) * 2 * Math.PI;

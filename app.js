@@ -26,7 +26,7 @@
   };
 
   const DEFAULT_PROFILE = {
-    hand: "右",
+    hand: "左",
     grip: "シェークハンド",
     rubber: "両面裏ソフト",
     style: "ドライブ型",
@@ -37,6 +37,24 @@
   const TECHS = window.TT_TECHNIQUES;
   const CATS = window.TT_CATEGORIES;
   const techById = Object.fromEntries(TECHS.map((t) => [t.id, t]));
+
+  /* ---------- 利き手 ----------
+   * 図鑑の説明は右利きで書いてあるので、左利きのときは「右」「左」を入れかえて表示する */
+  const isLefty = () => state.profile.hand === "左";
+  function swapLR(text) {
+    return String(text).replace(/左右/g, "\0").replace(/[右左]/g, (c) => (c === "右" ? "左" : "右")).replace(/\0/g, "左右");
+  }
+  function tx(t) {
+    if (!t || !isLefty()) return t;
+    return {
+      ...t,
+      summary: swapLR(t.summary),
+      tips: t.tips.map(swapLR),
+      mistakes: t.mistakes.map(swapLR),
+      drills: t.drills.map((d) => ({ name: swapLR(d.name), how: swapLR(d.how) })),
+      film: swapLR(t.film),
+    };
+  }
 
   const RATING_SCORE = { "◎": 3, "○": 2, "△": 1 };
 
@@ -237,6 +255,9 @@
    * 図鑑
    * ========================================================== */
   function renderBook() {
+    el.bookNote.textContent = isLefty()
+      ? "左利き用に、左右を入れかえて表示しています（設定タブの利き手で変えられます）。タップでコツ・よくあるミス・自分の記録が見られます。"
+      : "右利き・シェークハンドを基準に書いています。タップでコツ・よくあるミス・自分の記録が見られます。";
     el.bookList.innerHTML = CATS.map((cat) => {
       const items = TECHS.filter((t) => t.cat === cat.id)
         .map((t) => {
@@ -248,7 +269,7 @@
               <span class="tech-icon">${t.icon}</span>
               <span class="flex-1 min-w-0">
                 <span class="block font-bold text-sm">${escapeHtml(t.name)}${state.bests[t.id] ? " ⭐" : ""}</span>
-                <span class="block text-xs text-slate-500 truncate">${escapeHtml(t.summary)}</span>
+                <span class="block text-xs text-slate-500 truncate">${escapeHtml(tx(t).summary)}</span>
               </span>
               <span class="text-xs text-slate-400 whitespace-nowrap">${meta}</span>
             </button>`;
@@ -259,7 +280,7 @@
   }
 
   function openTech(techId) {
-    const t = techById[techId];
+    const t = tx(techById[techId]);
     if (!t) return;
     el.techTitle.textContent = `${t.icon} ${t.name}`;
     const mine = state.sessions.filter((x) => x.techId === t.id);
@@ -595,7 +616,7 @@
     const free = el.pickFocusFree.value.trim();
     if (free) f.focus.push(free);
     const t = techById[f.techId];
-    el.filmTip.textContent = `📱 撮り方：${t.film}。スマホを置いて固定し、10〜30秒くらい撮ると見やすいです。`;
+    el.filmTip.textContent = `📱 撮り方：${tx(t).film}。スマホを置いて固定し、10〜30秒くらい撮ると見やすいです。`;
     const best = bestSessionFor(f.techId);
     el.compareRow.classList.toggle("hidden", !best);
     if (best) el.compareDate.textContent = fmtDate(best.ts);
@@ -804,10 +825,10 @@
 
 # 選手
 ${profileText()}
-${state.profile.hand === "左" ? "※左利きなので、技の説明の左右は逆になります。\n" : ""}
+${isLefty() ? "※左利き。下の技の要点は左利き用に左右を入れかえてある。\n" : ""}
 # 練習した技：${t.name}
-- 技の要点：${t.tips.join(" / ")}
-- よくあるミス：${t.mistakes.join(" / ")}
+- 技の要点：${tx(t).tips.join(" / ")}
+- よくあるミス：${tx(t).mistakes.join(" / ")}
 # 今回意識したこと：${f.focus.length ? f.focus.join("、") : "（特になし）"}
 
 # 写真
@@ -942,8 +963,8 @@ ${compare ? `- 「ベスト」の写真：${compare.frames.length}枚。同じ�
 ${profileText()}
 
 # 練習した技：${t.name}
-- 技の要点：${t.tips.join(" / ")}
-- よくあるミス：${t.mistakes.join(" / ")}
+- 技の要点：${tx(t).tips.join(" / ")}
+- よくあるミス：${tx(t).mistakes.join(" / ")}
 # 今回意識したこと：${f.focus.length ? f.focus.join("、") : "（特になし）"}
 # 今日の手ごたえ：${f.feel ? `${f.feel} / 5` : "未入力"}
 
@@ -1442,7 +1463,7 @@ ${text}
     btn.textContent = "3Dを準備中…";
     try {
       const mod = await import("./trajectory-view.js");
-      mod.openTrajectory(techById[techId]);
+      mod.openTrajectory(techById[techId], { lefty: isLefty() });
     } catch (err) {
       console.error(err);
       alert(`3Dの表示を読み込めませんでした。通信を確認してください。\n${err.message}`);

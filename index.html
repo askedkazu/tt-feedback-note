@@ -100,7 +100,7 @@
          タブ：図鑑
          ===================================================== -->
     <main id="tabBook" class="tab hidden px-4 pb-28 pt-3">
-      <p class="text-xs text-slate-500 mb-3">右利き・シェークハンドを基準に書いています。タップでコツ・よくあるミス・自分の記録が見られます。</p>
+      <p id="bookNote" class="text-xs text-slate-500 mb-3"></p>
       <div id="bookList" class="space-y-5"></div>
     </main>
 
@@ -143,8 +143,8 @@
         <div class="grid grid-cols-2 gap-3 mt-3">
           <label class="field-mini">利き手
             <select id="pfHand" class="input w-full mt-1">
-              <option value="右">右利き</option>
               <option value="左">左利き</option>
+              <option value="右">右利き</option>
             </select>
           </label>
           <label class="field-mini">グリップ

@@ -27,6 +27,15 @@ const P0 = {
 
 let current = null;
 
+// 利き手（設定タブのプロフィール）。3Dの選手を左右反転するのに使う
+function isLefty() {
+  try {
+    return (JSON.parse(localStorage.getItem("ttNote.profile"))?.hand ?? "左") === "左";
+  } catch {
+    return true;
+  }
+}
+
 export function openSwing() {
   current?.dispose();
   current = new SwingView();
@@ -421,6 +430,7 @@ class SwingView {
         shot: { p0: r.shot.p0, v0: r.shot.v0, spin: r.shot.spin, stroke: r.mode, note: `${r.shot.outcome.label}　${r.shot.outcome.note}（${d.type}）` },
         contact: { n: r.shot.n, swing: r.shot.swing, faceDeg: r.faceDeg, swingDeg: r.swingDeg },
         startView: "side",
+        lefty: isLefty(),
       });
       // 3Dを閉じたら、また振れるようにする
       const watch = setInterval(() => {
