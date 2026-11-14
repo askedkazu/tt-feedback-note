@@ -174,7 +174,7 @@
 
     el.recentList.innerHTML = s.length
       ? s.slice(0, 3).map(sessionItemHtml).join("")
-      : `<p class="empty-note">まだ記録がありません。「練習をはじめる」から記録しよう</p>`;
+      : `<p class="empty-note">まだ記録がありません。「練習スタート」から記録しよう</p>`;
 
     renderBadges(el.badgeGrid);
   }
@@ -1338,6 +1338,14 @@ ${text}
     });
 
     el.startBtn.addEventListener("click", () => startFlow());
+    el.swingBtn.addEventListener("click", async () => {
+      try {
+        (await import("./swing.js")).openSwing();
+      } catch (err) {
+        console.error(err);
+        alert(`読み込めませんでした。通信を確認してください。\n${err.message}`);
+      }
+    });
     el.flowCloseBtn.addEventListener("click", closeFlow);
     el.recordFilter.addEventListener("change", renderRecord);
 
