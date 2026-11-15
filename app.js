@@ -308,8 +308,6 @@
         <h3>よくあるミス</h3>${list(t.mistakes)}
         <h3>チェック項目（AIが ◎○△ で評価）</h3>
         <div>${t.checks.map((c) => `<span class="check-chip">${escapeHtml(c)}</span>`).join("")}</div>
-        <h3>おすすめ練習</h3>
-        <ul>${t.drills.map((d) => `<li><b>${escapeHtml(d.name)}</b>：${escapeHtml(d.how)}</li>`).join("")}</ul>
         <h3>動画の撮り方</h3>
         <p class="text-sm text-slate-700">📱 ${escapeHtml(t.film)}</p>
       </div>`;
@@ -490,7 +488,6 @@
           <span><b>${escapeHtml(c.item)}</b><span class="block text-xs text-slate-500">${escapeHtml(c.comment)}</span></span></div>`
       )
       .join("");
-    const drills = (fb.drills || []).map((d) => `<li><b>${escapeHtml(d.name)}</b>：${escapeHtml(d.how)}</li>`).join("");
     return `
       <div class="card">
         <div class="flex items-center gap-4">
@@ -502,8 +499,7 @@
       ${fb.compare ? `<div class="card mt-3 bg-amber-50"><div class="fb-block"><h3>⭐ ベストの回と比べて</h3><p class="text-sm text-slate-700">${escapeHtml(fb.compare)}</p></div></div>` : ""}
       ${good ? `<div class="card mt-3 fb-block"><h3>👍 良かった点</h3><div class="fb-list">${good}</div></div>` : ""}
       ${fixes ? `<div class="card mt-3 fb-block"><h3>🔧 直す点（優先順）</h3><div class="fb-list">${fixes}</div></div>` : ""}
-      ${checks ? `<div class="card mt-3 fb-block"><h3>✅ チェック項目</h3><div>${checks}</div><p class="text-xs text-slate-400 mt-2">◎よくできている ○だいたいできている △課題あり −写真から判断できない</p></div>` : ""}
-      ${drills ? `<div class="card mt-3 fb-block tech-body"><h3>🏓 次の練習メニュー</h3><ul>${drills}</ul></div>` : ""}`;
+      ${checks ? `<div class="card mt-3 fb-block"><h3>✅ チェック項目</h3><div>${checks}</div><p class="text-xs text-slate-400 mt-2">◎よくできている ○だいたいできている △課題あり −写真から判断できない</p></div>` : ""}`;
   }
 
   function adviceHtml(a) {
@@ -514,7 +510,6 @@
         <h3 style="margin-top:0">💬 AIコーチの助言</h3>
         ${causes ? `<p class="text-xs font-bold text-slate-500 mb-1">考えられる原因</p><div class="fb-list">${causes}</div>` : ""}
         ${actions ? `<p class="text-xs font-bold text-slate-500 mt-3 mb-1">次の練習で意識すること</p><ul>${actions}</ul>` : ""}
-        ${a.nextDrill?.name ? `<p class="text-xs font-bold text-slate-500 mt-3 mb-1">おすすめメニュー</p><p class="text-sm"><b>${escapeHtml(a.nextDrill.name)}</b>：${escapeHtml(a.nextDrill.how)}</p>` : ""}
         ${a.cheer ? `<p class="text-sm mt-3 text-sky-700 font-bold">${escapeHtml(a.cheer)}</p>` : ""}
       </div>`;
   }
@@ -842,7 +837,6 @@ ${compare ? `- 「ベスト」の写真：${compare.frames.length}枚。同じ�
 - good は1〜3個。具体的に
 - fixes は優先度の高い順に最大3個。point＝何を直すか（短く）、why＝今どうなっていて、なぜ大事か、how＝具体的な直し方（練習中に意識する短い言葉を含める）
 - 意識したことができていたかを、summary か good / fixes で必ず触れる
-- drills は次の練習メニューを1〜2個
 - compare は「ベスト」の写真があるときだけ、ベストと比べて良くなった点・違う点を2〜3文で。ないときは空文字
 - summary は2文以内
 - 写真に卓球の動きがほとんど写っていない、または別の技に見えるときは visible を false にし、summary でそのことを伝える
@@ -872,7 +866,6 @@ ${compare ? `- 「ベスト」の写真：${compare.frames.length}枚。同じ�
             },
           }),
         }),
-        drills: Schema.array({ items: Schema.object({ properties: { name: Schema.string(), how: Schema.string() } }) }),
         compare: Schema.string(),
       },
     });
@@ -901,10 +894,6 @@ ${compare ? `- 「ベスト」の写真：${compare.frames.length}枚。同じ�
         .filter((x) => x.point)
         .slice(0, 3),
       checks: checks.filter((c) => c.item).slice(0, t.checks.length + 2),
-      drills: arr(obj.drills)
-        .map((d) => ({ name: str(d.name), how: str(d.how) }))
-        .filter((d) => d.name)
-        .slice(0, 2),
       compare: str(obj.compare),
     };
   }
@@ -981,7 +970,6 @@ ${text}
 - causes：振り返りに書かれた問題の、考えられる原因を1〜3個（cause は短く、detail で理由）。動画のフィードバックや最近の記録と結びつけられるときは結びつける
 - 同じ悩みをくり返しているときは、そのことに触れる
 - actions：次の練習で意識することを2〜3個。練習中に思い出せる短い言葉で
-- nextDrill：次にやるとよい練習メニューを1つ（name と how）
 - cheer：前向きなひとこと（1文）
 - 中学生にも分かるやさしい日本語で`;
 
@@ -991,7 +979,6 @@ ${text}
         properties: {
           causes: Schema.array({ items: Schema.object({ properties: { cause: Schema.string(), detail: Schema.string() } }) }),
           actions: Schema.array({ items: Schema.string() }),
-          nextDrill: Schema.object({ properties: { name: Schema.string(), how: Schema.string() } }),
           cheer: Schema.string(),
         },
       });
@@ -1000,7 +987,6 @@ ${text}
       f.advice = {
         causes: (obj.causes || []).map((c) => ({ cause: str(c.cause), detail: str(c.detail) })).filter((c) => c.cause).slice(0, 3),
         actions: (obj.actions || []).map(str).filter(Boolean).slice(0, 3),
-        nextDrill: { name: str(obj.nextDrill?.name), how: str(obj.nextDrill?.how) },
         cheer: str(obj.cheer),
       };
       f.adviceFor = text;

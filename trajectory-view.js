@@ -81,7 +81,8 @@ const T_START = -0.75; // 打つ0.75秒前から再生する（相手の球が�
 const END_PAUSE = 0.9; // 最後まで行ったら少し止まってからくり返す（秒）
 const MAX_VISUAL_SPIN = 2.5; // 画面上のボールの回転は、見える速さ（回転/秒）までにおさえる
 const IMPACT_SLOW = 0.1; // インパクト視点では、打つ瞬間の前後をさらに遅くする
-const BALL_SCALE = 1.6; // 実物は直径4cm。見やすいように少し大きく描く
+const BALL_SCALE = 1.6;
+const GRIP = 0.12; // ラケットの真ん中から、にぎる所までの長さ // 実物は直径4cm。見やすいように少し大きく描く
 
 export const hasShot = (techId) => !!SHOTS[techId];
 
@@ -209,8 +210,10 @@ class Player {
     if (racketCenter) {
       const toSh = sub(shR, racketCenter);
       handle = unit(sub(toSh, mul(this.n, dot(toSh, this.n))));
-      handR = reach(shR, add(racketCenter, mul(handle, 0.14)), 0.57);
+      // 手が届かないときは手をとどく所まで引き寄せ、ラケットは必ず手に持たせる
+      handR = reach(shR, add(racketCenter, mul(handle, GRIP)), 0.57);
       elbowR = solveJoint(shR, handR, 0.3, 0.28, add(add(mul(left, -0.8), [0, 0, -0.6]), mul(fwd, -0.3)));
+      racketCenter = sub(handR, mul(handle, GRIP));
     }
     // 左手：バランスをとる（サーブではトスを上げる）
     let handL;
@@ -221,7 +224,7 @@ class Player {
       handL = add(add(add(chest, mul(fwd, 0.3)), mul(left, 0.22)), [0, 0, -0.12]);
     }
     const elbowL = solveJoint(shL, reach(shL, handL, 0.57), 0.3, 0.28, add(mul(left, 0.8), [0, 0, -0.6]));
-    return { pelvis, chest, neck, head, shR, shL, hipR, hipL, kneeR, kneeL, footR: this.footR, footL: this.footL, handR, elbowR, handL: reach(shL, handL, 0.57), elbowL, handle, fwd, left };
+    return { pelvis, chest, neck, head, shR, shL, hipR, hipL, kneeR, kneeL, footR: this.footR, footL: this.footL, handR, elbowR, handL: reach(shL, handL, 0.57), elbowL, handle, racketCenter, fwd, left };
   }
 
   /** サーブのトスを上げる手の位置 */
@@ -237,12 +240,13 @@ class Player {
 
   build(scene) {
     const g = new THREE.Group();
-    const skin = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.6 });
-    const shirt = new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.7 });
-    const shorts = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 });
-    const shoe = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.5 });
-    this.bodyMats = [skin, shirt, shorts, shoe];
-    const cyl = new THREE.CylinderGeometry(1, 1, 1, 14);
+    // 棒人間：線は細く、ラケットを持つ腕だけオレンジにして目立たせる
+    const body = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.6 });
+    const arm = new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.6 });
+    const shoe = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.6 });
+    const skin = new THREE.MeshStandardMaterial({ color: 0xf1d3b3, roughness: 0.6 });
+    this.bodyMats = [body, arm, shoe];
+    const cyl = new THREE.CylinderGeometry(1, 1, 1, 10);
     const sph = new THREE.SphereGeometry(1, 16, 12);
     const limb = (mat, r) => {
       const m = new THREE.Mesh(cyl, mat);
@@ -256,18 +260,19 @@ class Player {
       g.add(m);
       return m;
     };
+    const L = 0.022, J = 0.03;
     this.parts = {
-      torso: limb(shirt, 0.135),
-      chestBall: ball(shirt, 0.15),
-      hipBall: ball(shorts, 0.13),
-      neck: limb(skin, 0.045),
-      head: ball(skin, 0.105),
-      upperR: limb(shirt, 0.05), foreR: limb(skin, 0.04), elbowR: ball(skin, 0.045), handR: ball(skin, 0.045), shoulderR: ball(shirt, 0.06),
-      upperL: limb(shirt, 0.05), foreL: limb(skin, 0.04), elbowL: ball(skin, 0.045), handL: ball(skin, 0.045), shoulderL: ball(shirt, 0.06),
-      thighR: limb(shorts, 0.075), shinR: limb(skin, 0.055), kneeR: ball(skin, 0.06),
-      thighL: limb(shorts, 0.075), shinL: limb(skin, 0.055), kneeL: ball(skin, 0.06),
-      footR: new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.07, 0.1), shoe),
-      footL: new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.07, 0.1), shoe),
+      torso: limb(body, 0.03),
+      chestBall: ball(body, J),
+      hipBall: ball(body, J),
+      neck: limb(body, L),
+      head: ball(body, 0.1),
+      upperR: limb(arm, L), foreR: limb(arm, L), elbowR: ball(arm, J), handR: ball(arm, 0.001), shoulderR: ball(arm, J),
+      upperL: limb(body, L), foreL: limb(body, L), elbowL: ball(body, J), handL: ball(body, 0.035), shoulderL: ball(body, J),
+      thighR: limb(body, 0.026), shinR: limb(body, L), kneeR: ball(body, J),
+      thighL: limb(body, 0.026), shinL: limb(body, L), kneeL: ball(body, J),
+      footR: new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.05, 0.08), shoe),
+      footL: new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.05, 0.08), shoe),
     };
     g.add(this.parts.footR, this.parts.footL);
 
@@ -281,6 +286,25 @@ class Player {
     const grip = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.024, 0.1), new THREE.MeshStandardMaterial({ color: 0xa16207 }));
     grip.position.z = 0.076 + 0.045;
     racket.add(red, black, wood, grip);
+
+    // 手（シェークハンドの握り）：グリップをにぎるこぶしと、面に添える親指・人差し指
+    // 打つ面に親指（フォア）／人差し指（バック）が来るように、バックの技では指を反対にする
+    const side = this.shot.stroke === "bh" ? -1 : 1;
+    const fist = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.045, 0.07), skin);
+    fist.position.z = GRIP;
+    const fingerGeo = new THREE.CylinderGeometry(0.008, 0.008, 1, 8);
+    const finger = (from, to) => {
+      const m = new THREE.Mesh(fingerGeo, skin);
+      const a = new THREE.Vector3(...from), b = new THREE.Vector3(...to);
+      const d = new THREE.Vector3().subVectors(b, a);
+      m.position.copy(a).addScaledVector(d, 0.5);
+      m.scale.set(1, d.length(), 1);
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+      return m;
+    };
+    const thumb = finger([0.012, 0.012 * side, 0.098], [0.004, 0.012 * side, 0.058]);
+    const index = finger([-0.016, -0.012 * side, 0.092], [0.022, -0.012 * side, 0.035]);
+    racket.add(fist, thumb, index);
     g.add(racket);
     this.racket = racket;
 
@@ -292,7 +316,7 @@ class Player {
   setSeeThrough(on) {
     for (const m of this.bodyMats) {
       m.transparent = on;
-      m.opacity = on ? 0.15 : 1;
+      m.opacity = on ? 0.3 : 1;
       m.depthWrite = !on;
       m.needsUpdate = true;
     }
@@ -309,8 +333,8 @@ class Player {
 
   update(t) {
     const pre = this.joints(t, null);
-    const center = this.racketAt(t, this.readyRacket(pre));
-    const j = this.joints(t, center);
+    const j = this.joints(t, this.racketAt(t, this.readyRacket(pre)));
+    const center = j.racketCenter; // 手ににぎった位置
     const P = this.parts;
     this.setLimb(P.torso, j.pelvis, j.neck);
     P.chestBall.position.copy(toV3(j.chest));
