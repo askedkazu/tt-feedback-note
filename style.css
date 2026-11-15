@@ -194,6 +194,15 @@ body .bg-sky-50 { background: var(--blue-soft); }
   transition: transform 0.1s;
 }
 .hero-btn span { font-size: 1.2rem; }
+.hero-sub {
+  display: block;
+  margin-top: 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.85);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .hero-btn:active { transform: scale(0.97); }
 
 /* 数字（スコアボード風） */

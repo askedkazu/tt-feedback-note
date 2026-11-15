@@ -49,9 +49,10 @@
         </div>
         <div class="court-content">
           <p class="hero-kicker" id="heroDate"></p>
-          <p class="hero-title">今日は、<br />どの技を磨く？</p>
-          <p class="hero-flow">技 → 練習 → 動画 → AIコーチ → 振り返り</p>
-          <button id="startBtn" class="hero-btn">練習スタート<span aria-hidden="true">→</span></button>
+          <p class="hero-title">今日の練習、<br />どうだった？</p>
+          <p class="hero-flow">部活のあとに振り返り → AIコーチが原因と、次に意識することを出す</p>
+          <button id="startBtn" class="hero-btn">振り返りを書く<span aria-hidden="true">→</span></button>
+          <button id="videoStartBtn" class="hero-sub">🎥 動画でフォームチェック</button>
         </div>
       </section>
 
@@ -78,7 +79,7 @@
 
       <!-- 最近の課題（直近のフィードバックの「直す点」） -->
       <section id="focusCard" class="hidden card mt-4">
-        <p class="section-title">📌 いまの課題</p>
+        <p class="section-title">📌 次の練習で意識すること</p>
         <div id="focusList" class="mt-2 space-y-2"></div>
       </section>
 
@@ -296,6 +297,11 @@
             <span class="text-slate-600">今日の手ごたえ</span>
             <span id="feelStars" class="flex gap-1"></span>
           </label>
+        </div>
+        <div id="reflectTechCard" class="card mt-4 hidden">
+          <p class="field-label">今日練習した技（3つまで・選ばなくてもOK）</p>
+          <p id="reflectTechNow" class="text-xs text-slate-500 mb-3"></p>
+          <div id="reflectTechList" class="space-y-2"></div>
         </div>
         <div id="adviceBox" class="hidden mt-4"></div>
         <p id="reflectMsg" class="hidden text-sm mt-3 rounded-lg p-2 msg-error whitespace-pre-wrap"></p>

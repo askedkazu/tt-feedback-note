@@ -44,6 +44,15 @@
   function swapLR(text) {
     return String(text).replace(/左右/g, "\0").replace(/[右左]/g, (c) => (c === "右" ? "左" : "右")).replace(/\0/g, "左右");
   }
+  // 記録の技（振り返りでは複数選べる。選ばなければ空＝練習全体）
+  const techsOf = (x) => (x.techIds?.length ? x.techIds : x.techId ? [x.techId] : []);
+  const hasTech = (x, id) => techsOf(x).includes(id);
+  function techLabel(x) {
+    const names = techsOf(x).map((id) => techById[id]?.name).filter(Boolean);
+    return names.length ? names.join("・") : "練習全体";
+  }
+  const techIcon = (x) => techById[techsOf(x)[0]]?.icon || "📝";
+
   function tx(t) {
     if (!t || !isLefty()) return t;
     return {
@@ -164,18 +173,20 @@
       const d = new Date(x.ts);
       return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
     }).length;
-    el.statTechs.textContent = new Set(s.map((x) => x.techId)).size;
+    el.statTechs.textContent = new Set(s.flatMap(techsOf)).size;
     el.homeLoginNudge.classList.toggle("hidden", !cloud.ready || !!cloud.user);
 
-    // いまの課題：技ごとに、いちばん新しい記録の「直す点」の1つ目
+    // 次の練習で意識すること：いちばん新しい振り返りの助言と、技ごとの最新の「直す点」
     const seen = new Set();
     const focus = [];
     for (const x of s) {
-      if (seen.has(x.techId)) continue;
-      seen.add(x.techId);
+      const key = techsOf(x).join(",") || "all";
+      if (seen.has(key)) continue;
+      seen.add(key);
       const fix = x.feedback?.fixes?.[0];
-      const action = x.advice?.actions?.[0];
-      if (fix || action) focus.push({ x, text: fix ? fix.point : action, how: fix?.how || "" });
+      const actions = x.advice?.actions || [];
+      if (actions.length) focus.push({ x, text: actions[0], how: actions.slice(1).join("／") });
+      else if (fix) focus.push({ x, text: fix.point, how: fix.how || "" });
       if (focus.length >= 3) break;
     }
     el.focusCard.classList.toggle("hidden", !focus.length);
@@ -183,7 +194,7 @@
       .map(
         ({ x, text, how }) => `
         <button class="w-full text-left text-sm" data-session="${x.id}">
-          <span class="check-chip">${escapeHtml(techById[x.techId]?.name || "")}</span>
+          <span class="check-chip">${escapeHtml(techLabel(x))}</span>
           <b class="text-slate-800">${escapeHtml(text)}</b>
           ${how ? `<span class="block text-xs text-slate-500 mt-0.5">${escapeHtml(how)}</span>` : ""}
         </button>`
@@ -192,25 +203,24 @@
 
     el.recentList.innerHTML = s.length
       ? s.slice(0, 3).map(sessionItemHtml).join("")
-      : `<p class="empty-note">まだ記録がありません。「練習スタート」から記録しよう</p>`;
+      : `<p class="empty-note">まだ記録がありません。部活のあとに「振り返りを書く」から記録しよう</p>`;
 
     renderBadges(el.badgeGrid);
   }
 
   function sessionItemHtml(x) {
-    const tech = techById[x.techId];
     const thumb = x.cover
       ? `<img class="log-thumb" src="${x.cover}" alt="" />`
-      : `<span class="log-thumb">${tech?.icon || "🏓"}</span>`;
-    const best = state.bests[x.techId] === x.id ? "⭐ " : "";
+      : `<span class="log-thumb">${techIcon(x)}</span>`;
+    const best = x.techId && state.bests[x.techId] === x.id ? "⭐ " : "";
     const sub = x.feedback?.fixes?.[0]?.point || x.reflection || x.feedback?.summary || "";
-    const score = x.score != null ? `<span class="log-score">${x.score}点</span>` : `<span class="log-score none">メモ</span>`;
+    const score = x.score != null ? `<span class="log-score">${x.score}点</span>` : `<span class="log-score none">振り返り</span>`;
     return `
       <button class="log-item" data-session="${x.id}">
         ${thumb}
         <span class="flex-1 min-w-0">
           <span class="block text-xs text-slate-500">${fmtDate(x.ts)}</span>
-          <span class="block font-bold text-sm truncate">${best}${escapeHtml(tech?.name || "（消えた技）")}</span>
+          <span class="block font-bold text-sm truncate">${best}${escapeHtml(techLabel(x))}</span>
           <span class="block text-xs text-slate-500 truncate">${escapeHtml(sub)}</span>
         </span>
         ${score}
@@ -221,7 +231,7 @@
   const BADGES = [
     { id: "first", icon: "🏓", name: "はじめての記録", test: (s) => s.length >= 1 },
     { id: "ten", icon: "🔟", name: "記録10回", test: (s) => s.length >= 10 },
-    { id: "variety", icon: "🌈", name: "5種類の技", test: (s) => new Set(s.map((x) => x.techId)).size >= 5 },
+    { id: "variety", icon: "🌈", name: "5種類の技", test: (s) => new Set(s.flatMap(techsOf)).size >= 5 },
     { id: "ai10", icon: "🎥", name: "AIに10回見てもらう", test: (s) => s.filter((x) => x.feedback).length >= 10 },
     { id: "reflect10", icon: "📝", name: "振り返り10回", test: (s) => s.filter((x) => x.reflection).length >= 10 },
     { id: "best", icon: "⭐", name: "ベストを決めた", test: () => Object.keys(state.bests).length >= 1 },
@@ -261,7 +271,7 @@
     el.bookList.innerHTML = CATS.map((cat) => {
       const items = TECHS.filter((t) => t.cat === cat.id)
         .map((t) => {
-          const mine = state.sessions.filter((x) => x.techId === t.id);
+          const mine = state.sessions.filter((x) => hasTech(x, t.id));
           const last = mine.find((x) => x.score != null);
           const meta = mine.length ? `${mine.length}回${last ? `・前回 ${last.score}点` : ""}` : "まだ練習していない";
           return `
@@ -283,7 +293,7 @@
     const t = tx(techById[techId]);
     if (!t) return;
     el.techTitle.textContent = `${t.icon} ${t.name}`;
-    const mine = state.sessions.filter((x) => x.techId === t.id);
+    const mine = state.sessions.filter((x) => hasTech(x, t.id));
     const scored = mine.filter((x) => x.score != null);
     const best = state.sessions.find((x) => x.id === state.bests[t.id]);
     const lastFix = mine.find((x) => x.feedback?.fixes?.length)?.feedback.fixes[0];
@@ -337,13 +347,13 @@
       : `<p class="empty-note">AIにフォームを見てもらうと、ここに点数の推移が出ます</p>`;
 
     // 一覧
-    const usedTechs = [...new Set(state.sessions.map((x) => x.techId))];
+    const usedTechs = [...new Set(state.sessions.flatMap(techsOf))];
     const current = el.recordFilter.value;
     el.recordFilter.innerHTML =
       `<option value="">すべての技</option>` +
       usedTechs.map((id) => `<option value="${id}">${escapeHtml(techById[id]?.name || id)}</option>`).join("");
     el.recordFilter.value = usedTechs.includes(current) ? current : "";
-    const list = state.sessions.filter((x) => !el.recordFilter.value || x.techId === el.recordFilter.value);
+    const list = state.sessions.filter((x) => !el.recordFilter.value || hasTech(x, el.recordFilter.value));
     el.recordList.innerHTML = list.length ? list.map(sessionItemHtml).join("") : `<p class="empty-note">まだ記録がありません</p>`;
   }
 
@@ -402,8 +412,7 @@
     const x = state.sessions.find((s) => s.id === id);
     if (!x) return;
     state.openSessionId = id;
-    const tech = techById[x.techId];
-    el.sessionTitle.textContent = `${tech?.icon || "🏓"} ${tech?.name || ""}`;
+    el.sessionTitle.textContent = `${techIcon(x)} ${techLabel(x)}`;
     el.sessionBody.innerHTML = `
       <p class="text-xs text-slate-500">${fmtDate(x.ts, true)}${x.feel ? `　手ごたえ ${"★".repeat(x.feel)}${"☆".repeat(5 - x.feel)}` : ""}</p>
       ${x.focus?.length ? `<p class="text-sm mt-2"><b>意識したこと：</b>${x.focus.map(escapeHtml).join("、")}</p>` : ""}
@@ -425,7 +434,8 @@
   }
 
   function renderBestBtn(x) {
-    const on = state.bests[x.techId] === x.id;
+    el.bestBtn.classList.toggle("hidden", !x.hasFrames && !(x.techId && state.bests[x.techId] === x.id));
+    const on = !!x.techId && state.bests[x.techId] === x.id;
     el.bestBtn.textContent = on ? "⭐ ベストの回" : "☆ ベストにする";
     el.bestBtn.classList.toggle("on", on);
     el.bestBtn.disabled = !x.hasFrames && !on;
@@ -517,10 +527,18 @@
   /* ==========================================================
    * 練習の流れ
    * ========================================================== */
-  function startFlow(techId = null) {
+  /** 部活のあとの振り返り（動画なし）。いちばんよく使う入口 */
+  function startReflect() {
+    startFlow(null, "reflect");
+    goReflect();
+  }
+
+  function startFlow(techId = null, mode = "video") {
     state.flow = {
       id: newId(),
+      mode,
       techId: null,
+      techIds: [],
       focus: [],
       video: null, // { url, duration }
       start: 0,
@@ -551,7 +569,7 @@
       li.classList.toggle("active", k === n);
       li.classList.toggle("done", k < n);
     });
-    el.stepper.classList.toggle("hidden", id === "flowDone");
+    el.stepper.classList.toggle("hidden", id === "flowDone" || state.flow?.mode === "reflect");
     window.scrollTo(0, 0);
   }
 
@@ -583,12 +601,13 @@
     const f = state.flow;
     const t = techById[techId];
     f.techId = techId;
+    f.techIds = [techId];
     f.focus = [];
     el.pickTechList.querySelectorAll("[data-pick]").forEach((b) => b.classList.toggle("selected", b.dataset.pick === techId));
     el.pickFocusList.innerHTML = t.checks
       .map((c) => `<label class="step-item"><input type="checkbox" value="${escapeHtml(c)}" /><span>${escapeHtml(c)}</span></label>`)
       .join("");
-    const last = state.sessions.find((x) => x.techId === techId && (x.feedback?.fixes?.length || x.advice?.actions?.length));
+    const last = state.sessions.find((x) => hasTech(x, techId) && (x.feedback?.fixes?.length || x.advice?.actions?.length));
     const lastFix = last?.feedback?.fixes?.[0];
     const lastAction = last?.advice?.actions?.[0];
     el.pickLastFix.classList.toggle("hidden", !last);
@@ -901,6 +920,10 @@ ${compare ? `- 「ベスト」の写真：${compare.frames.length}枚。同じ�
   /* ---------- STEP4：振り返り ---------- */
   function goReflect() {
     const f = state.flow;
+    const reflectOnly = f.mode === "reflect";
+    el.reflectTechCard.classList.toggle("hidden", !reflectOnly);
+    if (reflectOnly) renderReflectTechs();
+    el.headerTitle.textContent = reflectOnly ? "今日の振り返り" : TAB_TITLES.flow;
     el.reflectChips.innerHTML = REFLECT_HINTS.map((h) => `<button class="pick-chip text-xs" data-hint="${escapeHtml(h)}">${escapeHtml(h)}</button>`).join("");
     renderFeel();
     el.adviceBox.classList.toggle("hidden", !f.advice);
@@ -908,6 +931,26 @@ ${compare ? `- 「ベスト」の写真：${compare.frames.length}枚。同じ�
     showMsg(el.reflectMsg, "");
     updateReflectButtons();
     showFlowStep("flowReflect");
+  }
+
+  // 振り返りで選ぶ技（3つまで。選ばなければ「練習全体」）
+  function renderReflectTechs() {
+    const f = state.flow;
+    el.reflectTechList.innerHTML = CATS.map((cat) => {
+      const chips = TECHS.filter((t) => t.cat === cat.id)
+        .map((t) => `<button class="pick-chip text-xs ${f.techIds.includes(t.id) ? "selected" : ""}" data-rtech="${t.id}">${t.icon} ${escapeHtml(t.name)}</button>`)
+        .join("");
+      return `<div><p class="cat-title" style="font-size:0.95rem;margin-bottom:0.25rem">${cat.name}</p><div class="flex flex-wrap gap-1.5">${chips}</div></div>`;
+    }).join("");
+    el.reflectTechNow.textContent = f.techIds.length ? f.techIds.map((id) => techById[id].name).join("・") : "選ばなければ「練習全体」として記録します";
+  }
+
+  function toggleReflectTech(id) {
+    const f = state.flow;
+    if (f.techIds.includes(id)) f.techIds = f.techIds.filter((x) => x !== id);
+    else if (f.techIds.length < 3) f.techIds.push(id);
+    f.techId = f.techIds[0] || null;
+    renderReflectTechs();
   }
 
   function renderFeel() {
@@ -928,19 +971,25 @@ ${compare ? `- 「ベスト」の写真：${compare.frames.length}枚。同じ�
 
   async function requestAdvice() {
     const f = state.flow;
-    const t = techById[f.techId];
+    const techs = f.techIds.map((id) => tx(techById[id])).filter(Boolean);
     const text = el.reflectText.value.trim();
     if (!text) return;
     el.adviceBtn.disabled = true;
     el.adviceBtn.innerHTML = `<span class="inline-flex items-center gap-2"><span class="spinner" style="width:1.1rem;height:1.1rem"></span>AIが考え中…</span>`;
     showMsg(el.reflectMsg, "");
 
-    // 同じ技の最近の振り返りと課題（くり返している悩みに気づいてもらう）
+    // 同じ技（技を選んでいなければ全体）の最近の振り返りと課題（くり返している悩みに気づいてもらう）
     const history = state.sessions
-      .filter((x) => x.techId === f.techId)
-      .slice(0, 3)
-      .map((x) => `- ${fmtDate(x.ts)}：課題「${x.feedback?.fixes?.map((y) => y.point).join("、") || "なし"}」／振り返り「${(x.reflection || "なし").slice(0, 120)}」`)
+      .filter((x) => !techs.length || techs.some((t) => hasTech(x, t.id)))
+      .slice(0, 4)
+      .map(
+        (x) =>
+          `- ${fmtDate(x.ts)}（${techLabel(x)}）：課題「${x.feedback?.fixes?.map((y) => y.point).join("、") || x.advice?.actions?.join("、") || "なし"}」／振り返り「${(x.reflection || "なし").slice(0, 120)}」`
+      )
       .join("\n");
+    const techText = techs.length
+      ? techs.map((t) => `## ${t.name}\n- 技の要点：${t.tips.join(" / ")}\n- よくあるミス：${t.mistakes.join(" / ")}`).join("\n")
+      : "（技を選んでいない。練習全体の振り返り）";
     const fb = f.feedback;
     const fbText = fb
       ? `要約：${fb.summary}\n直す点：${fb.fixes.map((x) => x.point).join("、") || "なし"}\n△の項目：${fb.checks.filter((c) => c.rating === "△").map((c) => c.item).join("、") || "なし"}`
@@ -951,16 +1000,16 @@ ${compare ? `- 「ベスト」の写真：${compare.frames.length}枚。同じ�
 # 選手
 ${profileText()}
 
-# 練習した技：${t.name}
-- 技の要点：${tx(t).tips.join(" / ")}
-- よくあるミス：${tx(t).mistakes.join(" / ")}
+# 練習した技
+${techText}
 # 今回意識したこと：${f.focus.length ? f.focus.join("、") : "（特になし）"}
 # 今日の手ごたえ：${f.feel ? `${f.feel} / 5` : "未入力"}
+# 状況：部活の練習のあとに書いた振り返り。練習中はスマホを使えない
 
 # 今回の動画へのAIのフィードバック
 ${fbText}
 
-# 同じ技の最近の記録
+# 最近の記録
 ${history || "（まだなし）"}
 
 # 選手の振り返り
@@ -969,7 +1018,7 @@ ${text}
 # 出力のルール
 - causes：振り返りに書かれた問題の、考えられる原因を1〜3個（cause は短く、detail で理由）。動画のフィードバックや最近の記録と結びつけられるときは結びつける
 - 同じ悩みをくり返しているときは、そのことに触れる
-- actions：次の練習で意識することを2〜3個。練習中に思い出せる短い言葉で
+- actions：次の練習で意識することを2〜3個。スマホを見られない練習中でも頭の中で思い出せる、短い合言葉のような言葉で（例：「前でとらえる」「打ったら戻る」）
 - cheer：前向きなひとこと（1文）
 - 中学生にも分かるやさしい日本語で`;
 
@@ -1009,7 +1058,8 @@ ${text}
     const session = {
       id: f.id,
       ts: Date.now(),
-      techId: f.techId,
+      techId: f.techIds[0] || null,
+      techIds: f.techIds,
       focus: f.focus,
       feedback: f.feedback,
       score: f.feedback ? scoreOf(f.feedback) : null,
@@ -1055,10 +1105,12 @@ ${text}
           .map((b) => `<div class="badge-tile"><div class="badge-icon">${b.icon}</div><p>${b.name}</p></div>`)
           .join("")}</div>`
       : "";
-    const t = techById[f.techId];
-    const count = state.sessions.filter((x) => x.techId === f.techId).length;
+    const count = session.techId ? state.sessions.filter((x) => hasTech(x, session.techId)).length : state.sessions.length;
+    const first = session.advice?.actions?.[0];
     el.doneNote.textContent =
-      `${t.name}の記録は${count}回目です。` + (session.local ? "（ログインしていないので、この端末だけに保存しました）" : "");
+      (session.techId ? `${techById[session.techId].name}の記録は${count}回目です。` : `${count}回目の記録です。`) +
+      (first ? `次の練習は「${first}」を意識しよう。` : "") +
+      (session.local ? "（ログインしていないので、この端末だけに保存しました）" : "");
     showFlowStep("flowDone");
   }
 
@@ -1344,7 +1396,12 @@ ${text}
       });
     });
 
-    el.startBtn.addEventListener("click", () => startFlow());
+    el.startBtn.addEventListener("click", startReflect);
+    el.videoStartBtn.addEventListener("click", () => startFlow());
+    el.reflectTechList.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-rtech]");
+      if (b) toggleReflectTech(b.dataset.rtech);
+    });
     el.swingBtn.addEventListener("click", async () => {
       try {
         (await import("./swing.js")).openSwing();
