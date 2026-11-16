@@ -166,7 +166,15 @@ const SWINGS = {
   },
   // バック：手首を内側に曲げておなかの前に引き寄せ、面を立てて前にはじき、顔の高さまで前上へ振り抜く
   bh: {
-    drive: { back: [0.18, 0.02, 0.02], follow: [0.52, -0.25, 0.5] },
+    // バックドライブ（卓球レポート「ようこそ卓球 バックハンドドライブ」の連続写真を参考）：前傾を深くし、
+    // 手首を大きくひねって面をかぶせ、ひじを前に出して支点にし、手首を利かせて斜め上へ。振り抜きでラケットの先を打つ方向へ
+    drive: {
+      back: [0.24, 0.02, -0.04],
+      follow: [0.55, -0.25, 0.42],
+      lean: 0.15,
+      wrist: [[-0.3, 1.1], [0, 0], [0.22, -0.55]],
+      elbow: [[-0.3, [0.7, -0.35, -0.6]], [0, [0.7, -0.35, -0.6]], [0.22, [0.6, -0.45, -0.45]]], // ひじは前で安定
+    },
     hit: { back: [0.2, 0.0, 0.12], follow: [0.55, -0.12, 0.5] },
   },
 };
@@ -218,6 +226,8 @@ class Player {
     if (tpl?.yaw) this.yawKeys = tpl.yaw; // 技によって体のひねりの大きさを変える
     if (tpl?.weight) this.weightKeys = tpl.weight;
     if (tpl?.dip) this.dipKeys = tpl.dip;
+    if (tpl?.lean) this.lean += tpl.lean; // 前傾を深くする技
+    if (tpl?.wrist) this.wristKeys = tpl.wrist;
     if (tpl) {
       back = this.bodyPoint(tpl.back, this.yawAt(-0.3));
       follow = this.bodyPoint(tpl.follow, this.yawAt(0.22));
@@ -306,7 +316,7 @@ class Player {
         elbowR = solveJoint(shR, handR, 0.3, 0.28, pole);
         const toElbow = perp(sub(elbowR, handR), this.n);
         // 斜めの握り（先が上がる向き）と、手首の曲げ（先が下がる向き）
-        const wrist = keyed(WRIST[this.shot.stroke] || WRIST.fh, t);
+        const wrist = keyed(this.wristKeys || WRIST[this.shot.stroke] || WRIST.fh, t);
         if (len(toElbow) > 1e-6) h = rotAround(unit(toElbow), this.n, (this.gripSign || 1) * (GRIP_ANGLE - wrist));
       }
       handle = h;
