@@ -148,7 +148,14 @@ const STROKES = {
 const SWINGS = {
   fh: {
     drive: { back: [-0.05, -0.55, -0.3], follow: [0.3, 0.08, 0.62] }, // 腰の横まで低く引き、おでこの前まで振り抜く
-    hit: { back: [0.05, -0.5, -0.05], follow: [0.35, 0.0, 0.45] },
+    // フォアロング（卓球レポート「ようこそ卓球 フォアハンドロング」の連続写真を参考）：
+    // 腰を小さくひねってラケットを腰の横へ（体より後ろに引かない）、体の斜め前で軽く押すように打ち、斜め上へ小さく振る
+    hit: {
+      back: [0.1, -0.42, 0.02],
+      follow: [0.32, -0.02, 0.36],
+      yaw: [-0.4, -0.1, 0.3],
+      elbow: [[-0.3, [-0.2, -0.7, -0.7]], [0, [0.1, -0.8, -0.5]], [0.22, [0.25, -0.8, -0.3]]], // ひじは上げすぎない
+    },
   },
   // バック：手首を内側に曲げておなかの前に引き寄せ、面を立てて前にはじき、顔の高さまで前上へ振り抜く
   bh: {
@@ -201,6 +208,7 @@ class Player {
     this.kind = kind;
     let back, follow;
     const tpl = SWINGS[shot.stroke]?.[kind];
+    if (tpl?.yaw) this.yawKeys = tpl.yaw; // 技によって体のひねりの大きさを変える
     if (tpl) {
       back = this.bodyPoint(tpl.back, this.yawAt(-0.3));
       follow = this.bodyPoint(tpl.follow, this.yawAt(0.22));
@@ -213,7 +221,7 @@ class Player {
     // 打つ瞬間の前後は、振る向き（D）にまっすぐ通す
     const pts = [back, sub(this.c0, mul(D, 0.15)), this.c0, add(this.c0, mul(D, 0.15)), follow].map((p) => new THREE.Vector3(...p));
     this.curve = new THREE.CatmullRomCurve3(pts, false, "centripetal");
-    this.elbowKeys = ELBOW_POLE[shot.stroke] || ELBOW_POLE.fh;
+    this.elbowKeys = tpl?.elbow || ELBOW_POLE[shot.stroke] || ELBOW_POLE.fh;
 
     // 斜めの握り：打つ瞬間にラケットの先が上を向く側に傾ける
     // どちらに傾けてもラケットの真ん中は同じなので、手の高さで比べる：手が低い方＝ラケットの先が上
@@ -239,7 +247,7 @@ class Player {
 
   /** 時刻 t の体のひねり（ラジアン） */
   yawAt(t) {
-    const [b, c, f] = this.cfg.yaw;
+    const [b, c, f] = this.yawKeys || this.cfg.yaw;
     const r = this.cfg.ready;
     return keyed([[-0.6, r], [-0.3, b], [0, c], [0.22, f], [0.4, f], [0.8, r]], t);
   }
