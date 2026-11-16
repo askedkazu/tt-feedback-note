@@ -105,7 +105,7 @@ export function openTrajectory(tech, { lefty = false } = {}) {
   if (!shot) return;
   closeTrajectory();
   MIRROR = lefty ? -1 : 1;
-  current = new TrajectoryView({ title: `${tech.icon} ${tech.name}`, shot, solved: solveShot(shot) });
+  current = new TrajectoryView({ title: `${tech.icon} ${tech.name}`, shot: { ...shot, form: FORM_BY_TECH[tech.id] }, solved: solveShot(shot) });
 }
 
 /**
@@ -135,240 +135,373 @@ export function closeTrajectory() {
 /* ==========================================================
  * 選手（マネキンのような簡単な人の形。右利き）
  * ========================================================== */
-const STROKES = {
-  // 打つ位置から見た腰の位置、足の位置（体の前＝+x、左＝+y）、体のひねり（ラジアン）、前かがみ
-  fh: { pelvis: [-0.32, 0.4], feetR: [-0.14, -0.3], feetL: [0.18, 0.28], yaw: [-0.75, -0.15, 0.5], lean: 0.28, ready: 0 },
-  // バック：前かがみは浅めの高い姿勢（卓球レポート「基本のバックハンド」の連続写真を参考）
-  bh: { pelvis: [-0.45, 0.04], feetR: [0.02, -0.3], feetL: [0.02, 0.3], yaw: [0.3, 0.0, -0.15], lean: 0.2, ready: 0, height: 0.92 },
-  serve: { pelvis: [-0.3, 0.32], feetR: [-0.12, -0.24], feetL: [0.2, 0.26], yaw: [-1.0, -0.7, -0.35], lean: 0.38, ready: -0.8 },
-};
 
-/* スイングの形（右利き・体から見た位置：前＝x、左＝y、上＝z、腰が原点）
-   back＝引いたときのラケット、follow＝振り抜いたときのラケット */
-const SWINGS = {
-  fh: {
-    // ドライブ（卓球レポート「ようこそ卓球 フォアハンドドライブ」の連続写真を参考）：腰を大きくひねって
-    // 利き手側の足に重心をかけ、ひざの高さまで低く引く → 床を蹴って腰を回し斜め上へ → 反対の足に重心を移して頭の高さへ
-    drive: {
-      back: [-0.05, -0.55, -0.38],
-      follow: [0.3, 0.08, 0.62],
-      weight: [[-0.3, -0.09], [0, -0.02], [0.25, 0.09], [0.8, 0]], // 横の重心（マイナス＝利き手側の足）
-      dip: [[-0.3, 0.08], [0, 0.03], [0.25, -0.01], [0.8, 0]], // ひざの曲げ（沈み込み）
-    },
-    // フォアツッツキ（卓球レポート「ようこそ卓球 フォアハンドツッツキ」の連続写真を参考）：面を開くように手首を小さく曲げ、
-    // 体より後ろに引かず、利き手側の足に重心をかけて、ひじを伸ばしながら斜め下へ。ひじは安定させる
-    push: {
-      lean: 0.12,
-      weight: [[-0.3, -0.04], [0, -0.06], [0.25, -0.07], [0.8, 0]],
-      elbow: [[-0.3, [0.2, -0.75, -0.6]], [0, [0.3, -0.7, -0.6]], [0.22, [0.35, -0.65, -0.6]]],
-      wrist: [[-0.3, -0.2], [0, 0], [0.22, 0]],
-    },
-    // フォアロング（卓球レポート「ようこそ卓球 フォアハンドロング」の連続写真を参考）：
-    // 腰を小さくひねってラケットを腰の横へ（体より後ろに引かない）、体の斜め前で軽く押すように打ち、斜め上へ小さく振る
-    hit: {
-      back: [0.1, -0.42, 0.02],
-      follow: [0.32, -0.02, 0.36],
-      yaw: [-0.4, -0.1, 0.3],
-      elbow: [[-0.3, [-0.2, -0.7, -0.7]], [0, [0.1, -0.8, -0.5]], [0.22, [0.25, -0.8, -0.3]]], // ひじは上げすぎない
-    },
+/* ==========================================================
+ * 関節で決める動き（右利き。左利きは表示のときに左右反転する）
+ * ----------------------------------------------------------
+ * 技ごとに「構え・引き・打球・振り抜き」の姿勢を関節の角度で決め、その間をなめらかな曲線でつなぐ。
+ *  - yaw：体のひねり（度。プラス＝左へ回る）、lean：前傾（度）、crouch：沈み込み（m）
+ *  - shift：重心の移動 [前, 左]（m。左がマイナス＝利き手側の足へ）
+ *  - up：上腕の向き [左右, 上下]（度）、fore：前腕の向き [左右, 上下]（度）
+ *      左右：0＝体の正面、マイナス＝利き手側（右）、プラス＝反対側（左）。上下：0＝水平、マイナス＝下
+ *  - cock：手首の角度（ラケットの先を前腕からどれだけ曲げるか。度）、pro：前腕のひねり（打つ瞬間からの差。度）
+ * 打つ瞬間は、前腕のひねりと手首を計算で調整して、ラケット面を物理計算の向きにぴったり合わせる。
+ * 参考：卓球レポート（バタフライ）「ようこそ卓球 基本技術編」「基本のバックハンド」の連続写真
+ * ========================================================== */
+const P = (yaw, lean, crouch, shift, up, fore, cock, pro = 0) => ({ yaw, lean, crouch, shift, up, fore, cock, pro });
+const FORMS = {
+  // フォアロング：腰を小さくひねり、ラケットは腰の横（体より後ろに引かない）、体の斜め前で軽く押す、斜め上へ小さく
+  fhLong: {
+    stance: "fh", tBack: -0.22, tFollow: 0.15,
+    ready: P(0, 18, 0.05, [0, 0], [-35, -55], [-5, 0], 20),
+    back: P(-25, 18, 0.06, [-0.02, -0.04], [-70, -62], [-45, -15], 15, -10),
+    contact: P(-5, 18, 0.05, [0.02, -0.01], [-40, -45], [-5, 10], 15),
+    follow: P(18, 16, 0.04, [0.04, 0.03], [-15, -20], [35, 50], 10, 10),
   },
-  // サーブ（卓球レポート「ようこそ卓球 下回転サービス」の連続写真を参考）：体はフォア側を向いて前傾、
-  // トスで上体を軽く起こし、利き手側の足に重心をかけて引き、反対の足へ重心を移しながら後ろから前へ
+  // フォアドライブ：腰を大きくひねり、利き手側の足に重心をかけてひざの高さまで低く引く → 床を蹴って斜め上へ → 反対の足へ重心、頭の高さへ
+  fhDrive: {
+    stance: "fh", tBack: -0.28, tFollow: 0.18,
+    ready: P(0, 22, 0.06, [0, 0], [-35, -55], [-5, 0], 20),
+    back: P(-45, 26, 0.13, [-0.03, -0.09], [-80, -78], [-60, -70], 5, -15),
+    contact: P(-10, 22, 0.07, [0, -0.02], [-45, -50], [-10, 20], 10),
+    follow: P(32, 14, 0.03, [0.05, 0.09], [-5, 30], [40, 85], 0, 15),
+  },
+  // カウンター：ドライブを小さく、早く
+  fhCounter: {
+    stance: "fh", tBack: -0.2, tFollow: 0.14,
+    ready: P(0, 22, 0.06, [0, 0], [-35, -55], [-5, 0], 20),
+    back: P(-30, 22, 0.08, [-0.02, -0.05], [-70, -55], [-40, -10], 10, -10),
+    contact: P(-8, 22, 0.06, [0.01, -0.01], [-40, -40], [-5, 15], 10),
+    follow: P(22, 18, 0.04, [0.04, 0.05], [-15, -5], [30, 50], 5, 10),
+  },
+  // フォアツッツキ：面を開くように手首を小さく曲げ、体より後ろに引かず、ひじを伸ばしながら斜め下へ
+  fhPush: {
+    stance: "fh", stepIn: true, tBack: -0.18, tFollow: 0.13,
+    ready: P(0, 32, 0.07, [0, 0], [-30, -45], [0, 10], 25),
+    back: P(-8, 34, 0.08, [0, -0.04], [-38, -42], [-10, 22], 30, 10),
+    contact: P(-3, 36, 0.08, [0.03, -0.06], [-30, -32], [5, 2], 20),
+    follow: P(0, 37, 0.08, [0.05, -0.07], [-25, -22], [12, -15], 15),
+  },
+  // ストップ：ツッツキをさらに小さく、止めるように
+  fhStop: {
+    stance: "fh", stepIn: true, tBack: -0.15, tFollow: 0.1,
+    ready: P(0, 32, 0.07, [0, 0], [-30, -45], [0, 10], 25),
+    back: P(-4, 34, 0.08, [0, -0.04], [-33, -40], [-4, 15], 25, 5),
+    contact: P(-2, 36, 0.08, [0.03, -0.06], [-30, -34], [3, 6], 20),
+    follow: P(-1, 36, 0.08, [0.04, -0.06], [-28, -30], [6, 2], 18),
+  },
+  // フリック：台上で前にはじく
+  fhFlick: {
+    stance: "fh", stepIn: true, tBack: -0.16, tFollow: 0.13,
+    ready: P(0, 32, 0.07, [0, 0], [-30, -45], [0, 10], 25),
+    back: P(-12, 34, 0.08, [0, -0.04], [-40, -42], [-20, -8], 5, -10),
+    contact: P(-4, 35, 0.08, [0.03, -0.05], [-30, -32], [5, 5], 15),
+    follow: P(8, 33, 0.07, [0.05, -0.04], [-20, -18], [25, 35], 25, 10),
+  },
+  // バック打ち：胸の前に構え、手首を内側に曲げておなかの前に引き寄せ、面を立てて前にはじき、顔の高さへ前上に
+  bhLong: {
+    stance: "bh", tBack: -0.2, tFollow: 0.15,
+    ready: P(0, 12, 0.03, [0, 0], [-15, -50], [45, 10], 25),
+    back: P(10, 14, 0.04, [-0.01, 0], [-10, -55], [75, -20], 55, -10),
+    contact: P(0, 12, 0.03, [0.02, 0], [-15, -40], [20, 5], 15),
+    follow: P(-8, 10, 0.02, [0.03, 0], [-20, -15], [-5, 45], 0, 10),
+  },
+  // ブロック：振らずに当てる。ほとんど動かさない
+  bhBlock: {
+    stance: "bh", tBack: -0.15, tFollow: 0.1,
+    ready: P(0, 15, 0.04, [0, 0], [-15, -50], [40, 5], 20),
+    back: P(3, 15, 0.04, [0, 0], [-15, -48], [40, 3], 22),
+    contact: P(0, 15, 0.04, [0.01, 0], [-15, -45], [28, 5], 18),
+    follow: P(-2, 15, 0.04, [0.02, 0], [-15, -42], [20, 8], 15),
+  },
+  // バックドライブ：前傾を深く、手首を大きくひねって面をかぶせ、ひじを前に出して支点に、手首を利かせて斜め上へ
+  bhDrive: {
+    stance: "bh", tBack: -0.25, tFollow: 0.17,
+    ready: P(0, 22, 0.05, [0, 0], [-15, -50], [45, 5], 25),
+    back: P(12, 28, 0.08, [-0.01, 0], [-5, -60], [60, -50], 70, -15),
+    contact: P(0, 25, 0.06, [0.02, 0], [-15, -40], [25, 10], 15),
+    follow: P(-12, 18, 0.03, [0.04, 0], [-20, 0], [10, 65], -20, 15),
+  },
+  // バックツッツキ：面を上に向けて自分の方へ小さく引き寄せ、前傾を深め、ひじを伸ばしながら斜め下へ
+  bhPush: {
+    stance: "bh", stepIn: true, tBack: -0.18, tFollow: 0.13,
+    ready: P(0, 30, 0.06, [0, 0], [-10, -45], [40, 15], 25),
+    back: P(5, 33, 0.07, [0, -0.03], [-5, -45], [55, 25], 30, 10),
+    contact: P(0, 35, 0.07, [0.03, -0.05], [-10, -30], [25, 0], 20),
+    follow: P(-3, 36, 0.07, [0.05, -0.06], [-15, -20], [10, -15], 15),
+  },
+  // チキータ：ひじを高く上げ、手首を深く曲げてラケットの先を下に、手首を解放して振り抜く
+  bhChiquita: {
+    stance: "bh", stepIn: true, tBack: -0.2, tFollow: 0.14,
+    ready: P(0, 32, 0.07, [0, 0], [-10, -45], [40, 15], 25),
+    back: P(10, 36, 0.08, [0, -0.04], [-20, -12], [95, -55], 95, -20),
+    contact: P(0, 35, 0.08, [0.03, -0.05], [-15, -18], [35, -15], 35),
+    follow: P(-15, 30, 0.07, [0.05, -0.04], [-25, 0], [-25, 30], -15, 20),
+  },
+  // サーブ：体はフォア側を向いて前傾、トスで上体を軽く起こし、ラケットは胸の高さに引き、重心を移しながら後ろから前へ
   serve: {
-    serve: {
-      weight: [[-0.6, 0], [-0.3, -0.08], [0, 0.02], [0.25, 0.07], [0.8, 0]],
-      leanKeys: [[-0.75, 0.05], [-0.5, -0.15], [-0.3, -0.05], [0, 0.05], [0.4, 0]], // 前傾の増減（トスで起こす）
-    },
+    stance: "serve", heading: -40, tBack: -0.3, tFollow: 0.16,
+    ready: P(0, 28, 0.06, [0, 0], [0, -50], [30, 5], 20),
+    toss: P(-5, 14, 0.04, [0, -0.02], [-15, -45], [15, 5], 25), // トスを上げる（上体を起こす）
+    back: P(-15, 22, 0.06, [-0.02, -0.07], [-45, -10], [-5, 15], 30, 10),
+    contact: P(0, 28, 0.07, [0.01, 0.01], [10, -35], [40, 0], 20),
+    follow: P(15, 28, 0.06, [0.03, 0.07], [30, -55], [60, -25], 15, -5),
   },
-  // バック：手首を内側に曲げておなかの前に引き寄せ、面を立てて前にはじき、顔の高さまで前上へ振り抜く
-  bh: {
-    // ツッツキ（卓球レポート「ようこそ卓球 バックハンドツッツキ」の連続写真を参考）：面を上に向けて小さく引き寄せ、
-    // 利き手側の足に重心をかけて前傾を深め、ひじを伸ばしながら斜め下へ。通り道は振る向きにそって短く
-    push: {
-      lean: 0.15,
-      weight: [[-0.3, -0.04], [0, -0.07], [0.25, -0.08], [0.8, 0]],
-      elbow: [[-0.3, [0.6, -0.3, -0.7]], [0, [0.5, -0.3, -0.75]], [0.22, [0.4, -0.3, -0.8]]],
-      wrist: [[-0.3, 0.15], [0, 0], [0.22, 0]],
-    },
-    // バックドライブ（卓球レポート「ようこそ卓球 バックハンドドライブ」の連続写真を参考）：前傾を深くし、
-    // 手首を大きくひねって面をかぶせ、ひじを前に出して支点にし、手首を利かせて斜め上へ。振り抜きでラケットの先を打つ方向へ
-    drive: {
-      back: [0.24, 0.02, -0.04],
-      follow: [0.55, -0.25, 0.42],
-      lean: 0.15,
-      wrist: [[-0.3, 1.1], [0, 0], [0.22, -0.55]],
-      elbow: [[-0.3, [0.7, -0.35, -0.6]], [0, [0.7, -0.35, -0.6]], [0.22, [0.6, -0.45, -0.45]]], // ひじは前で安定
-    },
-    hit: { back: [0.2, 0.0, 0.12], follow: [0.55, -0.12, 0.5] },
+  // YG・巻き込みサーブ：ラケットを体の内側（左）から外側（右）へ振る
+  serveOut: {
+    stance: "serve", heading: -40, tBack: -0.3, tFollow: 0.16,
+    ready: P(0, 28, 0.06, [0, 0], [0, -50], [30, 5], 20),
+    toss: P(-5, 14, 0.04, [0, -0.02], [-15, -45], [15, 5], 25),
+    back: P(10, 24, 0.06, [-0.01, 0.03], [0, -60], [95, -5], 40, -10), // 腕を胸の近くにたたむ
+    contact: P(0, 28, 0.07, [0.01, 0], [0, -25], [40, 5], 20),
+    follow: P(-12, 28, 0.06, [0.02, -0.05], [-10, -5], [-20, -10], 0, 10), // 前へ伸ばしながら振り出す
   },
 };
-// ひじの向き（体から見た向き）：引き → 打球 → 振り抜き
-const ELBOW_POLE = {
-  fh: [[-0.3, [-0.4, -0.7, -0.6]], [0, [0.1, -0.8, -0.5]], [0.22, [0.3, -0.7, 0.35]]],
-  bh: [[-0.3, [0.45, -0.3, -0.85]], [0, [0.4, -0.35, -0.85]], [0.22, [0.3, -0.5, -0.6]]], // ひじは低く、体の前
-  serve: [[-0.3, [-0.3, -0.8, 0.1]], [0, [0, -0.8, -0.5]], [0.22, [0.2, -0.8, -0.4]]],
+const FORM_BY_TECH = {
+  "fh-hit": "fhLong", "fh-loop-under": "fhDrive", "fh-loop-top": "fhDrive", counter: "fhCounter",
+  "fh-push": "fhPush", stop: "fhStop", flick: "fhFlick",
+  "bh-hit": "bhLong", block: "bhBlock", "bh-loop": "bhDrive", push: "bhPush", chiquita: "bhChiquita",
+  "bs-serve": "serve", pendulum: "serve", yg: "serveOut", reverse: "serveOut", squat: "serve",
 };
-const GRIP_ANGLE = 0.45; // シェークハンドは、グリップを前腕に対して斜め（約25°）に握る
-// 手首：引くときに内側に曲げ（ラケットの先が下がる）、打つ瞬間に戻し、振り抜きで少し返す（ラジアン）
-const WRIST = {
-  fh: [[-0.3, 0.3], [0, 0], [0.22, -0.15]],
-  bh: [[-0.3, 0.75], [0, 0], [0.22, -0.2]],
-  serve: [[-0.3, 0.55], [0, 0], [0.22, -0.3]],
+// 足の位置（腰から見た位置：前・左。m）。stepIn の技は利き手側の足を台の下へ踏み込む
+const STANCES = {
+  fh: { footR: [-0.14, -0.3], footL: [0.18, 0.28] },
+  bh: { footR: [0.02, -0.3], footL: [0.02, 0.3] },
+  serve: { footR: [-0.12, -0.24], footL: [0.2, 0.26] },
 };
+const PELVIS_H = 0.9; // まっすぐ立ったときの腰の高さ
+
+// なめらかな曲線（エルミート補間）で、[時刻, 値] の表から値を読む。途中の点では速さを保つ
+function spline(keys, t) {
+  if (t <= keys[0][0]) return keys[0][1];
+  if (t >= keys.at(-1)[0]) return keys.at(-1)[1];
+  let i = 0;
+  while (t > keys[i + 1][0]) i++;
+  const [t1, p1] = keys[i], [t2, p2] = keys[i + 1];
+  const m1 = i > 0 ? (p2 - keys[i - 1][1]) / (t2 - keys[i - 1][0]) : 0;
+  const m2 = i + 2 < keys.length ? (keys[i + 2][1] - p1) / (keys[i + 2][0] - t1) : 0;
+  const h = t2 - t1, u = (t - t1) / h;
+  const u2 = u * u, u3 = u2 * u;
+  return (2 * u3 - 3 * u2 + 1) * p1 + (u3 - 2 * u2 + u) * h * m1 + (-2 * u3 + 3 * u2) * p2 + (u3 - u2) * h * m2;
+}
+const rad = (d) => (d * Math.PI) / 180;
 
 class Player {
   constructor(scene, shot, contact) {
     this.shot = shot;
     this.contact = contact;
-    this.cfg = STROKES[shot.stroke] || STROKES.fh;
-    const p0 = shot.p0;
-    const cfg = this.cfg;
+    // 技の形（図鑑の技は FORM_BY_TECH、スマホのスイングは打球の回転から選ぶ）
+    const drive = (shot.spin?.[1] || 0) > 40;
+    this.formKey = shot.form || (shot.stroke === "serve" ? "serve" : shot.stroke === "bh" ? (drive ? "bhDrive" : "bhLong") : drive ? "fhDrive" : "fhLong");
+    const form = FORMS[this.formKey];
+    this.form = form;
+    this.n = contact.n;
+    this.c0 = sub(shot.p0, mul(contact.n, 0.02 + 0.006)); // 打つ瞬間のラケットの真ん中（ボールのすぐ後ろ）
+    this.heading = rad(form.heading || 0);
 
-    // 立つ位置（台にめりこまないように、台の端より後ろ）
-    let px = Math.min(p0[0] + cfg.pelvis[0], -TABLE.L / 2 - 0.2);
-    const py = p0[1] + cfg.pelvis[1];
-    const low = p0[2] < 0.85 ? 0.07 : 0;
-    this.pelvis0 = [px, py, (cfg.height || 0.88) - low];
-    // 打つ位置が台の上（短い球）なら、前にかがんで右足を台の下に踏み込む
-    this.reachOver = clamp((p0[0] - (px + 0.35)) * 1.3, 0, 0.55);
-    this.lean = cfg.lean + this.reachOver;
-    const stepIn = this.reachOver > 0.05 && shot.stroke !== "serve";
-    this.footR = [px + (stepIn ? 0.42 : cfg.feetR[0]), py + cfg.feetR[1], 0.04];
-    this.footL = [px + cfg.feetL[0], py + cfg.feetL[1], 0.04];
+    // 時刻ごとの姿勢の表：構え（止まる）→（サーブはトス）→ 引き → 打球 → 振り抜き → 少し止まる → 構えに戻る
+    const ph = [
+      [T_START, form.ready],
+      [-0.5, form.toss || form.ready],
+      [form.tBack, form.back],
+      [0, form.contact],
+      [form.tFollow, form.follow],
+      [0.32, form.follow],
+      [0.75, form.ready],
+    ];
+    this.phases = ph;
+    const keysOf = (get) => ph.map(([t, p]) => [t, get(p)]);
+    this.tracks = {
+      yaw: keysOf((p) => p.yaw), lean: keysOf((p) => p.lean), crouch: keysOf((p) => p.crouch),
+      sf: keysOf((p) => p.shift[0]), sl: keysOf((p) => p.shift[1]),
+      uAz: keysOf((p) => p.up[0]), uEl: keysOf((p) => p.up[1]), fAz: keysOf((p) => p.fore[0]), fEl: keysOf((p) => p.fore[1]),
+      cock: keysOf((p) => p.cock), pro: keysOf((p) => p.pro),
+    };
 
-    // ラケットの通り道（打つ瞬間に、ボールの後ろにラケット面が来る）
-    const n = contact.n, D = contact.swing;
-    this.n = n;
-    this.c0 = sub(p0, mul(n, 0.02 + 0.006));
-    // スイングの種類：ドライブ（大きく振り上げる）、打つ、ツッツキ（下へ）、台上（小さく）、サーブ
-    const compact = this.reachOver > 0.05 && shot.stroke !== "serve";
-    const kind =
-      shot.stroke === "serve" ? "serve" : contact.swingDeg < -5 ? "push" : compact ? "short" : (contact.racketSpeed || 0) > 10 ? "drive" : "hit";
-    this.kind = kind;
-    let back, follow;
-    const tpl = SWINGS[shot.stroke]?.[kind];
-    if (tpl?.yaw) this.yawKeys = tpl.yaw; // 技によって体のひねりの大きさを変える
-    if (tpl?.weight) this.weightKeys = tpl.weight;
-    if (tpl?.dip) this.dipKeys = tpl.dip;
-    if (tpl?.lean) this.lean += tpl.lean; // 前傾を深くする技
-    if (tpl?.wrist) this.wristKeys = tpl.wrist;
-    if (tpl?.leanKeys) this.leanKeys = tpl.leanKeys;
-    if (tpl?.back) {
-      back = this.bodyPoint(tpl.back, this.yawAt(-0.3));
-      follow = this.bodyPoint(tpl.follow, this.yawAt(0.22));
-    } else {
-      // ツッツキ・台上・サーブは、振る向きにそって短く（サーブは上から振り下ろす）
-      const L = { push: [0.28, 0.25, 0.04], short: [0.18, 0.28, -0.03], serve: [0.32, 0.35, 0.12] }[kind];
-      if (kind === "serve") {
-        // サーブ：ラケットは胸の高さに引き、後ろから前へ（振る向きの水平な成分にそって）
-        let Dh = [D[0], D[1], 0];
-        Dh = len(Dh) > 1e-6 ? unit(Dh) : [1, 0, 0];
-        back = add(sub(this.c0, mul(Dh, 0.3)), [0, 0, 0.18]);
-        follow = add(add(this.c0, mul(Dh, 0.32)), [0, 0, -0.06]);
-      } else {
-        back = add(sub(this.c0, mul(D, L[0])), [0, 0, L[2]]);
-        follow = add(this.c0, mul(D, L[1]));
-      }
+    // 打つ瞬間に、ラケットがボールの位置・向きに来るように合わせる
+    //  1) 前腕のひねりと手首の曲げで、ラケット面を物理計算の向きに合わせる
+    //  2) 上腕の上下の角度を少し変えて、ラケットの高さを合わせる
+    //  3) 体ごと前後左右に動かして、ラケットの位置を合わせる
+    //  4) 引きと振り抜きの腕の角度を少し変えて、打つ瞬間のラケットの動く向きを、物理計算の振る向きにそろえる
+    this.pro0 = 0;
+    this.flex0 = 0;
+    this.elevFix = 0;
+    this.zFix = 0;
+    this.origin = [0, 0];
+    // 前腕の向きを少し変えてみて、手首の曲げがいちばん小さくて済む向きを選ぶ
+    let bestFix = { cost: Infinity, fix: 0 };
+    for (const fix of [-40, -30, -20, -10, 0, 10, 20, 30, 40]) {
+      this.fAzFix = fix;
+      this.solveFace();
+      const ang = Math.acos(clamp(dot(this.pose(0).n, this.n), -1, 1));
+      const cost = ang * 3 + Math.abs(this.flex0) + Math.abs(rad(fix)) * 0.3;
+      if (cost < bestFix.cost) bestFix = { cost, fix };
     }
-    // 打つ瞬間の前後は、振る向き（D）にまっすぐ通す
-    const pts = [back, sub(this.c0, mul(D, 0.15)), this.c0, add(this.c0, mul(D, 0.15)), follow].map((p) => new THREE.Vector3(...p));
-    this.curve = new THREE.CatmullRomCurve3(pts, false, "centripetal");
-    this.elbowKeys = tpl?.elbow || ELBOW_POLE[shot.stroke] || ELBOW_POLE.fh;
+    this.fAzFix = bestFix.fix;
+    for (let k = 0; k < 3; k++) {
+      this.solveFace();
+      this.solveHeight();
+    }
+    this.solveSwing();
+    const c = this.pose(0).racketCenter;
+    this.origin = [this.c0[0] - c[0], this.c0[1] - c[1]];
 
-    // 斜めの握り：打つ瞬間にラケットの先が上を向く側に傾ける
-    // どちらに傾けてもラケットの真ん中は同じなので、手の高さで比べる：手が低い方＝ラケットの先が上
-    this.gripSign = this._handZ(1) <= this._handZ(-1) ? 1 : -1;
-
+    // 足の位置（打つ瞬間の腰の位置から決め、動かさない）
+    const p0 = this.pose(0);
+    const st = STANCES[form.stance];
+    const F = [Math.cos(this.heading), Math.sin(this.heading), 0], Lv = [-Math.sin(this.heading), Math.cos(this.heading), 0];
+    const base = [p0.pelvis[0], p0.pelvis[1], 0.04];
+    const at = (fl) => add(add(base, mul(F, fl[0])), mul(Lv, fl[1]));
+    this.footR = form.stepIn ? at([0.42, -0.26]) : at(st.footR);
+    this.footL = at(st.footL);
+    this.pelvis0 = p0.pelvis;
     this.build(scene);
   }
 
-  /** 体から見た位置（腰が原点、前・左・上）を、物理の座標にする */
-  bodyPoint(p, yaw) {
-    const fwd = [Math.cos(yaw), Math.sin(yaw), 0];
-    const left = [-Math.sin(yaw), Math.cos(yaw), 0];
-    return add(add(add(this.pelvis0, mul(fwd, p[0])), mul(left, p[1])), [0, 0, p[2]]);
+  /** 時刻 t の関節の角度など */
+  params(t) {
+    const v = {};
+    for (const [k, keys] of Object.entries(this.tracks)) v[k] = spline(keys, t);
+    return v;
   }
 
-  _handZ(sign) {
-    const keep = this.gripSign;
-    this.gripSign = sign;
-    const z = this.joints(0, this.c0).handR[2];
-    this.gripSign = keep;
-    return z;
+  /**
+   * 関節の角度から、体とラケットの位置を計算する（物理の座標）
+   * pro0・flex0・elevFix・origin は、打つ瞬間を合わせるための補正
+   */
+  pose(t) {
+    const v = this.params(t);
+    const yaw = this.heading + rad(v.yaw);
+    const H0 = [Math.cos(this.heading), Math.sin(this.heading), 0], L0 = [-Math.sin(this.heading), Math.cos(this.heading), 0];
+    const pelvis = add(add([this.origin[0], this.origin[1], PELVIS_H - v.crouch + (this.zFix || 0)], mul(H0, v.sf)), mul(L0, v.sl));
+    // 体の向き：ひねり（yaw）と前傾（lean）
+    const Fh = [Math.cos(yaw), Math.sin(yaw), 0];
+    const Lf = [-Math.sin(yaw), Math.cos(yaw), 0];
+    const lean = rad(v.lean);
+    const U = add(mul(Fh, Math.sin(lean)), [0, 0, Math.cos(lean)]); // 背骨の向き
+    const F = add(mul(Fh, Math.cos(lean)), [0, 0, -Math.sin(lean)]); // 胸の正面
+    const chest = add(pelvis, mul(U, 0.36));
+    const neck = add(pelvis, mul(U, 0.5));
+    const head = add(neck, add(mul(U, 0.11), mul(F, 0.03)));
+    const shR = add(add(chest, mul(U, 0.1)), mul(Lf, -0.19));
+    const shL = add(add(chest, mul(U, 0.1)), mul(Lf, 0.19));
+    const dir = (az, el) => {
+      const a = rad(az), e = rad(el);
+      return add(mul(add(mul(F, Math.cos(a)), mul(Lf, Math.sin(a))), Math.cos(e)), mul(U, Math.sin(e)));
+    };
+    // 右腕（ラケットを持つ腕）
+    const elbowR = add(shR, mul(dir(v.uAz, v.uEl + this.elevFix), 0.3));
+    const fdir = unit(dir(v.fAz + (this.fAzFix || 0), v.fEl));
+    const handR = add(elbowR, mul(fdir, 0.27));
+    // ラケット：前腕のひねり（pro）で面の向き、手首（cock）でラケットの先の向き、手首の曲げ（flex）で面の傾き
+    let r0 = perp(U, fdir);
+    r0 = len(r0) > 1e-6 ? unit(r0) : unit(perp(F, fdir));
+    const th = rad(v.pro) + this.pro0;
+    const nTh = add(mul(r0, Math.cos(th)), mul(cross(fdir, r0), Math.sin(th)));
+    let d = rotAround(fdir, nTh, rad(v.cock));
+    const ax = unit(cross(d, nTh));
+    const n = rotAround(nTh, ax, this.flex0);
+    d = rotAround(d, ax, this.flex0);
+    const racketCenter = add(handR, mul(d, GRIP));
+    return { pelvis, chest, neck, head, shR, shL, elbowR, handR, n, handle: mul(d, -1), racketCenter, F: Fh, L: Lf, U };
   }
 
-  /** 時刻 t の体のひねり（ラジアン） */
-  yawAt(t) {
-    const [b, c, f] = this.yawKeys || this.cfg.yaw;
-    const r = this.cfg.ready;
-    return keyed([[-0.6, r], [-0.3, b], [0, c], [0.22, f], [0.4, f], [0.8, r]], t);
+  /** 打つ瞬間のラケット面を、物理計算の向き（this.n）に合わせる（前腕のひねりと手首の曲げを探す） */
+  solveFace() {
+    const target = this.n;
+    let best = { cost: Infinity, pro: 0, flex: 0 };
+    const tryAt = (pro, flex) => {
+      this.pro0 = pro;
+      this.flex0 = flex;
+      const n = this.pose(0).n;
+      const ang = Math.acos(clamp(dot(n, target), -1, 1));
+      const cost = ang + 0.05 * Math.abs(flex);
+      if (cost < best.cost) best = { cost, pro, flex };
+    };
+    for (let p = -180; p < 180; p += 4) for (let f = -85; f <= 85; f += 5) tryAt(rad(p), rad(f));
+    const c = { ...best };
+    for (let p = -4; p <= 4; p += 0.5) for (let f = -5; f <= 5; f += 0.5) tryAt(c.pro + rad(p), c.flex + rad(f));
+    this.pro0 = best.pro;
+    this.flex0 = best.flex;
   }
 
-  /** ラケットの真ん中の位置 */
-  racketAt(t, readyPos) {
-    const u = keyed([[-0.3, 0], [-0.1, 0.3], [0, 0.5], [0.08, 0.72], [0.22, 1]], t);
-    const onCurve = this.curve.getPoint(clamp(u, 0, 1)).toArray();
-    if (t < -0.3) return lerpV(readyPos, this.curve.getPoint(0).toArray(), smooth(clamp((t + 0.6) / 0.3, 0, 1)));
-    if (t > 0.3) return lerpV(onCurve, readyPos, smooth(clamp((t - 0.3) / 0.45, 0, 1)));
-    return onCurve;
-  }
-
-  /** 関節の位置（物理の座標）を計算する */
-  joints(t, racketCenter) {
-    const yaw = this.yawAt(t);
-    const fwd = [Math.cos(yaw), Math.sin(yaw), 0];
-    const left = [-Math.sin(yaw), Math.cos(yaw), 0];
-    // 打つ瞬間に向けて少し前に体重を移す
-    const shift = keyed([[-0.3, -0.05], [0, 0.03], [0.25, 0.06], [0.8, 0]], t);
-    const dip = keyed(this.dipKeys || [[-0.3, 0.03], [0, 0], [0.3, -0.01]], t);
-    // 横の重心移動（ドライブ：利き手側の足 → 反対の足）
-    const lat = this.weightKeys ? keyed(this.weightKeys, t) : 0;
-    const pelvis = add(add(this.pelvis0, [shift, 0, -dip]), mul(left, lat));
-    const leanT = this.lean + (this.leanKeys ? keyed(this.leanKeys, t) : 0);
-    const spine = add(mul(fwd, Math.sin(leanT)), [0, 0, Math.cos(leanT)]);
-    const chest = add(pelvis, mul(spine, 0.36));
-    const neck = add(pelvis, mul(spine, 0.5));
-    const head = add(neck, add(mul(spine, 0.11), mul(fwd, 0.03)));
-    const shR = add(add(chest, mul(spine, 0.1)), mul(left, -0.19));
-    const shL = add(add(chest, mul(spine, 0.1)), mul(left, 0.19));
-    const hipR = add(pelvis, mul(left, -0.1));
-    const hipL = add(pelvis, mul(left, 0.1));
-    const kneeR = solveJoint(hipR, this.footR, 0.45, 0.45, add(fwd, [0, -0.2, 0]));
-    const kneeL = solveJoint(hipL, this.footL, 0.45, 0.45, add(fwd, [0, 0.2, 0]));
-
-    // 右手：ラケットのグリップ
-    let handR = null, elbowR = null, handle = null;
-    if (racketCenter) {
-      // ひじの向き（引き → 打球 → 振り抜きで、下・後ろ → 横 → 肩の高さへ）
-      const pl = keyedV(this.elbowKeys || ELBOW_POLE.fh, t);
-      const pole = add(add(mul(fwd, pl[0]), mul(left, pl[1])), [0, 0, pl[2]]);
-      // グリップは前腕の延長線上に、斜めに握る（何回か計算して、手・ひじ・グリップの向きをそろえる）
-      let h = perp(sub(shR, racketCenter), this.n);
-      h = len(h) > 1e-6 ? unit(h) : [0, 0, 1];
-      for (let k = 0; k < 3; k++) {
-        handR = reach(shR, add(racketCenter, mul(h, GRIP)), 0.57);
-        elbowR = solveJoint(shR, handR, 0.3, 0.28, pole);
-        const toElbow = perp(sub(elbowR, handR), this.n);
-        // 斜めの握り（先が上がる向き）と、手首の曲げ（先が下がる向き）
-        const wrist = keyed(this.wristKeys || WRIST[this.shot.stroke] || WRIST.fh, t);
-        if (len(toElbow) > 1e-6) h = rotAround(unit(toElbow), this.n, (this.gripSign || 1) * (GRIP_ANGLE - wrist));
-      }
-      handle = h;
-      // 手が届かないときは手をとどく所まで引き寄せ、ラケットは必ず手に持たせる
-      handR = reach(shR, add(racketCenter, mul(handle, GRIP)), 0.57);
-      elbowR = solveJoint(shR, handR, 0.3, 0.28, pole);
-      racketCenter = sub(handR, mul(handle, GRIP));
-    }
-    // 左手：バランスをとる（サーブではトスを上げる）
-    let handL;
-    if (this.shot.stroke === "serve") {
-      const palm = this.tossPalm();
-      handL = t < -0.5 ? palm : lerpV(palm, add(add(chest, mul(left, 0.35)), [0, 0, -0.1]), smooth(clamp((t + 0.5) / 0.4, 0, 1)));
+  /** 打つ瞬間のラケットの高さを、ボールの高さに合わせる（上腕の上下の角度を少し変え、足りない分はひざの曲げで） */
+  solveHeight() {
+    this.zFix = 0;
+    const z = (fix) => {
+      this.elevFix = fix;
+      return this.pose(0).racketCenter[2];
+    };
+    let lo = -25, hi = 25;
+    // 腕を上げるほどラケットは高くなる
+    if ((z(lo) - this.c0[2]) * (z(hi) - this.c0[2]) > 0) {
+      this.elevFix = Math.abs(z(lo) - this.c0[2]) < Math.abs(z(hi) - this.c0[2]) ? lo : hi;
     } else {
-      handL = add(add(add(chest, mul(fwd, 0.3)), mul(left, 0.22)), [0, 0, -0.12]);
+      for (let i = 0; i < 30; i++) {
+        const mid = (lo + hi) / 2;
+        if (z(mid) < this.c0[2]) lo = mid;
+        else hi = mid;
+      }
+      this.elevFix = (lo + hi) / 2;
     }
-    const elbowL = solveJoint(shL, reach(shL, handL, 0.57), 0.3, 0.28, add(mul(left, 0.8), [0, 0, -0.6]));
-    return { pelvis, chest, neck, head, shR, shL, hipR, hipL, kneeR, kneeL, footR: this.footR, footL: this.footL, handR, elbowR, handL: reach(shL, handL, 0.57), elbowL, handle, racketCenter, fwd, left };
+    this.zFix = clamp(this.c0[2] - this.pose(0).racketCenter[2], -0.2, 0.12);
+  }
+
+  /** 打つ瞬間のラケットの動く向きを、物理計算の振る向き（contact.swing）にそろえる */
+  solveSwing() {
+    const D = this.contact.swing;
+    const names = ["uAz", "uEl", "fAz", "fEl", "cock", "pro", "yaw"];
+    const limit = [45, 45, 45, 45, 45, 45, 25];
+    const base = Object.fromEntries(names.map((k) => [k, this.tracks[k].map((x) => [...x])]));
+    const iB = this.phases.findIndex(([t]) => t === this.form.tBack);
+    const iF = this.phases.findIndex(([t]) => t === this.form.tFollow);
+    const apply = (delta) => {
+      names.forEach((k, i) => {
+        const tr = base[k].map((x) => [...x]);
+        tr[iB][1] -= delta[i];
+        tr[iF][1] += delta[i];
+        tr[iF + 1][1] += delta[i]; // 振り抜きで止まっている間も同じ
+        this.tracks[k] = tr;
+      });
+    };
+    const err = (delta) => {
+      apply(delta);
+      const a = this.pose(-0.004).racketCenter, b = this.pose(0.004).racketCenter;
+      const v = sub(b, a);
+      const l = len(v) || 1;
+      return Math.acos(clamp(dot(v, D) / l, -1, 1)) + 0.003 * delta.reduce((s, x) => s + Math.abs(x), 0);
+    };
+    // 少しずつ動かして、ずれが小さくなる方へ（各関節 最大45°、体のひねりは25°）
+    const descend = (start) => {
+      let best = [...start], bestE = err(best);
+      for (const step of [12, 6, 3, 1.5]) {
+        let improved = true;
+        while (improved) {
+          improved = false;
+          for (let i = 0; i < names.length; i++) for (const sgn of [1, -1]) {
+            const c = [...best];
+            c[i] = clamp(c[i] + sgn * step, -limit[i], limit[i]);
+            const e = err(c);
+            if (e < bestE - 1e-4) {
+              best = c;
+              bestE = e;
+              improved = true;
+            }
+          }
+        }
+      }
+      return { best, bestE };
+    };
+    let res = descend(names.map(() => 0));
+    // まだ大きくずれているときは、いろいろな出発点から探し直す（毎回同じ結果になるよう、決まった乱数で）
+    let seed = 12345;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+    for (let k = 0; k < 24 && res.bestE > rad(15); k++) {
+      const r = descend(limit.map((l) => rnd() * l));
+      if (r.bestE < res.bestE) res = r;
+    }
+    apply(res.best);
+    this.swingFix = res.best.map((x) => Math.round(x));
   }
 
   /** サーブのトスを上げる手の位置 */
@@ -376,10 +509,25 @@ class Player {
     return add(this.shot.p0, [0.04, 0.22, 0.02]);
   }
 
-  readyRacket(j) {
-    // 構えのとき：体の前、おなかの高さ（バックは胸の前）
-    const bh = this.shot.stroke === "bh";
-    return add(add(add(j.chest, mul(j.fwd, bh ? 0.35 : 0.4)), mul(j.left, bh ? 0.02 : -0.2)), [0, 0, bh ? -0.04 : -0.22]);
+  /** 関節の位置（足・左腕を含む） */
+  joints(t) {
+    const j = this.pose(t);
+    const { pelvis, chest, shL, F, L } = j;
+    const hipR = add(pelvis, mul(L, -0.1));
+    const hipL = add(pelvis, mul(L, 0.1));
+    const kneeR = solveJoint(hipR, this.footR, 0.45, 0.45, add(F, [0, -0.2, 0]));
+    const kneeL = solveJoint(hipL, this.footL, 0.45, 0.45, add(F, [0, 0.2, 0]));
+    // 左手：バランスをとる（サーブではトスを上げる）
+    let handL;
+    if (this.shot.stroke === "serve") {
+      const palm = this.tossPalm();
+      handL = t < -0.5 ? palm : lerpV(palm, add(add(chest, mul(L, 0.35)), [0, 0, -0.1]), smooth(clamp((t + 0.5) / 0.4, 0, 1)));
+    } else {
+      handL = add(add(add(chest, mul(j.F, 0.28)), mul(L, 0.22)), [0, 0, -0.14]);
+    }
+    handL = reach(shL, handL, 0.57);
+    const elbowL = solveJoint(shL, handL, 0.3, 0.28, add(mul(L, 0.8), [0, 0, -0.6]));
+    return { ...j, hipR, hipL, kneeR, kneeL, footR: this.footR, footL: this.footL, handL, elbowL };
   }
 
   build(scene) {
@@ -490,9 +638,8 @@ class Player {
   }
 
   update(t) {
-    const pre = this.joints(t, null);
-    const j = this.joints(t, this.racketAt(t, this.readyRacket(pre)));
-    const center = j.racketCenter; // 手ににぎった位置
+    const j = this.joints(t);
+    const center = j.racketCenter;
     const P = this.parts;
     this.setLimb(P.torso, j.pelvis, j.neck);
     P.chestBall.position.copy(toV3(j.chest));
@@ -515,13 +662,14 @@ class Player {
     this.setLimb(P.thighL, j.hipL, j.kneeL);
     this.setLimb(P.shinL, j.kneeL, j.footL);
     P.kneeL.position.copy(toV3(j.kneeL));
+    const toe = toV3([Math.cos(this.heading), Math.sin(this.heading), 0]).normalize();
     for (const [foot, pos] of [[P.footR, j.footR], [P.footL, j.footL]]) {
       foot.position.copy(toV3(pos));
-      foot.rotation.y = this.yawAt(0) * 0.5;
+      foot.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), toe);
     }
 
-    // ラケット：面はボールが飛ぶ側、グリップは手の方
-    const yAxis = toV3(this.n).normalize();
+    // ラケット：面の向き（n）とグリップの向き（handle）は、前腕のひねりと手首から決まる
+    const yAxis = toV3(j.n).normalize();
     const zAxis = toV3(j.handle).normalize();
     const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis).normalize();
     this.racket.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis));
