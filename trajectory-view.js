@@ -147,7 +147,14 @@ const STROKES = {
    back＝引いたときのラケット、follow＝振り抜いたときのラケット */
 const SWINGS = {
   fh: {
-    drive: { back: [-0.05, -0.55, -0.3], follow: [0.3, 0.08, 0.62] }, // 腰の横まで低く引き、おでこの前まで振り抜く
+    // ドライブ（卓球レポート「ようこそ卓球 フォアハンドドライブ」の連続写真を参考）：腰を大きくひねって
+    // 利き手側の足に重心をかけ、ひざの高さまで低く引く → 床を蹴って腰を回し斜め上へ → 反対の足に重心を移して頭の高さへ
+    drive: {
+      back: [-0.05, -0.55, -0.38],
+      follow: [0.3, 0.08, 0.62],
+      weight: [[-0.3, -0.09], [0, -0.02], [0.25, 0.09], [0.8, 0]], // 横の重心（マイナス＝利き手側の足）
+      dip: [[-0.3, 0.08], [0, 0.03], [0.25, -0.01], [0.8, 0]], // ひざの曲げ（沈み込み）
+    },
     // フォアロング（卓球レポート「ようこそ卓球 フォアハンドロング」の連続写真を参考）：
     // 腰を小さくひねってラケットを腰の横へ（体より後ろに引かない）、体の斜め前で軽く押すように打ち、斜め上へ小さく振る
     hit: {
@@ -209,6 +216,8 @@ class Player {
     let back, follow;
     const tpl = SWINGS[shot.stroke]?.[kind];
     if (tpl?.yaw) this.yawKeys = tpl.yaw; // 技によって体のひねりの大きさを変える
+    if (tpl?.weight) this.weightKeys = tpl.weight;
+    if (tpl?.dip) this.dipKeys = tpl.dip;
     if (tpl) {
       back = this.bodyPoint(tpl.back, this.yawAt(-0.3));
       follow = this.bodyPoint(tpl.follow, this.yawAt(0.22));
@@ -268,8 +277,10 @@ class Player {
     const left = [-Math.sin(yaw), Math.cos(yaw), 0];
     // 打つ瞬間に向けて少し前に体重を移す
     const shift = keyed([[-0.3, -0.05], [0, 0.03], [0.25, 0.06], [0.8, 0]], t);
-    const dip = keyed([[-0.3, 0.03], [0, 0], [0.3, -0.01]], t);
-    const pelvis = add(this.pelvis0, [shift, 0, -dip]);
+    const dip = keyed(this.dipKeys || [[-0.3, 0.03], [0, 0], [0.3, -0.01]], t);
+    // 横の重心移動（ドライブ：利き手側の足 → 反対の足）
+    const lat = this.weightKeys ? keyed(this.weightKeys, t) : 0;
+    const pelvis = add(add(this.pelvis0, [shift, 0, -dip]), mul(left, lat));
     const spine = add(mul(fwd, Math.sin(this.lean)), [0, 0, Math.cos(this.lean)]);
     const chest = add(pelvis, mul(spine, 0.36));
     const neck = add(pelvis, mul(spine, 0.5));
