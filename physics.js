@@ -224,6 +224,11 @@ export const SHOTS = {
     p0: [-1.0, 0.05, 0.92], speed: 11, spin: [0, 55, 45], target: [1.0, -0.15],
     note: "上回転＋横回転。空中で弧を描くように曲がる（バナナのように）",
   },
+  "bs-serve": {
+    stroke: "serve",
+    p0: [-1.6, 0.45, 0.93], speed: 6, spin: [0, -40, 0], target: [-1.15, 0.35], serve: true,
+    note: "強い下回転。相手コートで2回バウンドする短いサーブ。止まるように弾み、持ち上げにくい",
+  },
   pendulum: {
     stroke: "serve",
     p0: [-1.6, 0.45, 0.95], speed: 7, spin: [0, -15, -45], target: [-1.0, 0.3], serve: true,

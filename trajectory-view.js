@@ -164,8 +164,24 @@ const SWINGS = {
       elbow: [[-0.3, [-0.2, -0.7, -0.7]], [0, [0.1, -0.8, -0.5]], [0.22, [0.25, -0.8, -0.3]]], // ひじは上げすぎない
     },
   },
+  // サーブ（卓球レポート「ようこそ卓球 下回転サービス」の連続写真を参考）：体はフォア側を向いて前傾、
+  // トスで上体を軽く起こし、利き手側の足に重心をかけて引き、反対の足へ重心を移しながら後ろから前へ
+  serve: {
+    serve: {
+      weight: [[-0.6, 0], [-0.3, -0.08], [0, 0.02], [0.25, 0.07], [0.8, 0]],
+      leanKeys: [[-0.75, 0.05], [-0.5, -0.15], [-0.3, -0.05], [0, 0.05], [0.4, 0]], // 前傾の増減（トスで起こす）
+    },
+  },
   // バック：手首を内側に曲げておなかの前に引き寄せ、面を立てて前にはじき、顔の高さまで前上へ振り抜く
   bh: {
+    // ツッツキ（卓球レポート「ようこそ卓球 バックハンドツッツキ」の連続写真を参考）：面を上に向けて小さく引き寄せ、
+    // 利き手側の足に重心をかけて前傾を深め、ひじを伸ばしながら斜め下へ。通り道は振る向きにそって短く
+    push: {
+      lean: 0.15,
+      weight: [[-0.3, -0.04], [0, -0.07], [0.25, -0.08], [0.8, 0]],
+      elbow: [[-0.3, [0.6, -0.3, -0.7]], [0, [0.5, -0.3, -0.75]], [0.22, [0.4, -0.3, -0.8]]],
+      wrist: [[-0.3, 0.15], [0, 0], [0.22, 0]],
+    },
     // バックドライブ（卓球レポート「ようこそ卓球 バックハンドドライブ」の連続写真を参考）：前傾を深くし、
     // 手首を大きくひねって面をかぶせ、ひじを前に出して支点にし、手首を利かせて斜め上へ。振り抜きでラケットの先を打つ方向へ
     drive: {
@@ -228,14 +244,23 @@ class Player {
     if (tpl?.dip) this.dipKeys = tpl.dip;
     if (tpl?.lean) this.lean += tpl.lean; // 前傾を深くする技
     if (tpl?.wrist) this.wristKeys = tpl.wrist;
-    if (tpl) {
+    if (tpl?.leanKeys) this.leanKeys = tpl.leanKeys;
+    if (tpl?.back) {
       back = this.bodyPoint(tpl.back, this.yawAt(-0.3));
       follow = this.bodyPoint(tpl.follow, this.yawAt(0.22));
     } else {
       // ツッツキ・台上・サーブは、振る向きにそって短く（サーブは上から振り下ろす）
       const L = { push: [0.28, 0.25, 0.04], short: [0.18, 0.28, -0.03], serve: [0.32, 0.35, 0.12] }[kind];
-      back = add(sub(this.c0, mul(D, L[0])), [0, 0, L[2]]);
-      follow = add(this.c0, mul(D, L[1]));
+      if (kind === "serve") {
+        // サーブ：ラケットは胸の高さに引き、後ろから前へ（振る向きの水平な成分にそって）
+        let Dh = [D[0], D[1], 0];
+        Dh = len(Dh) > 1e-6 ? unit(Dh) : [1, 0, 0];
+        back = add(sub(this.c0, mul(Dh, 0.3)), [0, 0, 0.18]);
+        follow = add(add(this.c0, mul(Dh, 0.32)), [0, 0, -0.06]);
+      } else {
+        back = add(sub(this.c0, mul(D, L[0])), [0, 0, L[2]]);
+        follow = add(this.c0, mul(D, L[1]));
+      }
     }
     // 打つ瞬間の前後は、振る向き（D）にまっすぐ通す
     const pts = [back, sub(this.c0, mul(D, 0.15)), this.c0, add(this.c0, mul(D, 0.15)), follow].map((p) => new THREE.Vector3(...p));
@@ -291,7 +316,8 @@ class Player {
     // 横の重心移動（ドライブ：利き手側の足 → 反対の足）
     const lat = this.weightKeys ? keyed(this.weightKeys, t) : 0;
     const pelvis = add(add(this.pelvis0, [shift, 0, -dip]), mul(left, lat));
-    const spine = add(mul(fwd, Math.sin(this.lean)), [0, 0, Math.cos(this.lean)]);
+    const leanT = this.lean + (this.leanKeys ? keyed(this.leanKeys, t) : 0);
+    const spine = add(mul(fwd, Math.sin(leanT)), [0, 0, Math.cos(leanT)]);
     const chest = add(pelvis, mul(spine, 0.36));
     const neck = add(pelvis, mul(spine, 0.5));
     const head = add(neck, add(mul(spine, 0.11), mul(fwd, 0.03)));
@@ -400,9 +426,14 @@ class Player {
     // 手（シェークハンドの握り）：グリップをにぎるこぶしと、面に添える親指・人差し指
     // 打つ面に親指（フォア）／人差し指（バック）が来るように、バックの技では指を反対にする
     const side = this.shot.stroke === "bh" ? -1 : 1;
+    // サーブは中指・薬指・小指をグリップから離して丸める（手首を使いやすい握り）
+    const serveGrip = this.shot.stroke === "serve";
     // 手のひら（グリップの、親指と反対側をつつむ）
-    const fist = new THREE.Mesh(new THREE.BoxGeometry(0.052, 0.03, 0.075), skin);
-    fist.position.set(0.012, 0.004 * side, GRIP + 0.005);
+    const fist = serveGrip
+      ? new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.045, 0.045), skin) // 丸めた指（グリップの外）
+      : new THREE.Mesh(new THREE.BoxGeometry(0.052, 0.03, 0.075), skin);
+    if (serveGrip) fist.position.set(0.0, -0.03 * side, GRIP - 0.01);
+    else fist.position.set(0.012, 0.004 * side, GRIP + 0.005);
     const fingerGeo = new THREE.CylinderGeometry(0.008, 0.008, 1, 8);
     const finger = (from, to) => {
       const m = new THREE.Mesh(fingerGeo, skin);
@@ -417,7 +448,7 @@ class Player {
     const index = finger([-0.016, -0.012 * side, 0.092], [0.022, -0.012 * side, 0.035]);
     // 残りの3本の指：グリップに巻きつける
     const wrap = new THREE.TorusGeometry(0.018, 0.0065, 6, 14, Math.PI);
-    for (const z of [0.112, 0.13, 0.148]) {
+    for (const z of serveGrip ? [] : [0.112, 0.13, 0.148]) {
       const f = new THREE.Mesh(wrap, skin);
       f.position.z = z;
       f.rotation.z = side > 0 ? Math.PI : 0;
