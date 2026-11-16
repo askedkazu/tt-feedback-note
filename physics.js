@@ -176,7 +176,7 @@ export const SHOTS = {
   },
   "bh-hit": {
     stroke: "bh",
-    p0: [-1.65, 0.15, 0.97], speed: 8.5, spin: [0, 20, 0], target: [0.95, 0.3],
+    p0: [-1.65, 0.15, 1.02], speed: 8.5, spin: [0, 20, 0], target: [0.95, 0.3],
     note: "体の正面から、コンパクトに前へ",
   },
   push: {

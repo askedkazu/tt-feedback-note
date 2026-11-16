@@ -138,7 +138,8 @@ export function closeTrajectory() {
 const STROKES = {
   // 打つ位置から見た腰の位置、足の位置（体の前＝+x、左＝+y）、体のひねり（ラジアン）、前かがみ
   fh: { pelvis: [-0.32, 0.4], feetR: [-0.14, -0.3], feetL: [0.18, 0.28], yaw: [-0.75, -0.15, 0.5], lean: 0.28, ready: 0 },
-  bh: { pelvis: [-0.45, 0.04], feetR: [0.02, -0.3], feetL: [0.02, 0.3], yaw: [0.35, 0.0, -0.2], lean: 0.32, ready: 0 },
+  // バック：前かがみは浅めの高い姿勢（卓球レポート「基本のバックハンド」の連続写真を参考）
+  bh: { pelvis: [-0.45, 0.04], feetR: [0.02, -0.3], feetL: [0.02, 0.3], yaw: [0.3, 0.0, -0.15], lean: 0.2, ready: 0, height: 0.92 },
   serve: { pelvis: [-0.3, 0.32], feetR: [-0.12, -0.24], feetL: [0.2, 0.26], yaw: [-1.0, -0.7, -0.35], lean: 0.38, ready: -0.8 },
 };
 
@@ -149,18 +150,25 @@ const SWINGS = {
     drive: { back: [-0.05, -0.55, -0.3], follow: [0.3, 0.08, 0.62] }, // 腰の横まで低く引き、おでこの前まで振り抜く
     hit: { back: [0.05, -0.5, -0.05], follow: [0.35, 0.0, 0.45] },
   },
+  // バック：手首を内側に曲げておなかの前に引き寄せ、面を立てて前にはじき、顔の高さまで前上へ振り抜く
   bh: {
-    drive: { back: [0.22, 0.03, -0.22], follow: [0.5, -0.32, 0.32] }, // おなかの前から、右上へ
-    hit: { back: [0.25, 0.05, -0.05], follow: [0.5, -0.22, 0.18] },
+    drive: { back: [0.18, 0.02, 0.02], follow: [0.52, -0.25, 0.5] },
+    hit: { back: [0.2, 0.0, 0.12], follow: [0.55, -0.12, 0.5] },
   },
 };
 // ひじの向き（体から見た向き）：引き → 打球 → 振り抜き
 const ELBOW_POLE = {
   fh: [[-0.3, [-0.4, -0.7, -0.6]], [0, [0.1, -0.8, -0.5]], [0.22, [0.3, -0.7, 0.35]]],
-  bh: [[-0.3, [0.5, -0.4, -0.6]], [0, [0.5, -0.7, -0.3]], [0.22, [0.4, -0.8, 0.2]]],
+  bh: [[-0.3, [0.45, -0.3, -0.85]], [0, [0.4, -0.35, -0.85]], [0.22, [0.3, -0.5, -0.6]]], // ひじは低く、体の前
   serve: [[-0.3, [-0.3, -0.8, 0.1]], [0, [0, -0.8, -0.5]], [0.22, [0.2, -0.8, -0.4]]],
 };
 const GRIP_ANGLE = 0.45; // シェークハンドは、グリップを前腕に対して斜め（約25°）に握る
+// 手首：引くときに内側に曲げ（ラケットの先が下がる）、打つ瞬間に戻し、振り抜きで少し返す（ラジアン）
+const WRIST = {
+  fh: [[-0.3, 0.3], [0, 0], [0.22, -0.15]],
+  bh: [[-0.3, 0.75], [0, 0], [0.22, -0.2]],
+  serve: [[-0.3, 0.55], [0, 0], [0.22, -0.3]],
+};
 
 class Player {
   constructor(scene, shot, contact) {
@@ -174,7 +182,7 @@ class Player {
     let px = Math.min(p0[0] + cfg.pelvis[0], -TABLE.L / 2 - 0.2);
     const py = p0[1] + cfg.pelvis[1];
     const low = p0[2] < 0.85 ? 0.07 : 0;
-    this.pelvis0 = [px, py, 0.88 - low];
+    this.pelvis0 = [px, py, (cfg.height || 0.88) - low];
     // 打つ位置が台の上（短い球）なら、前にかがんで右足を台の下に踏み込む
     this.reachOver = clamp((p0[0] - (px + 0.35)) * 1.3, 0, 0.55);
     this.lean = cfg.lean + this.reachOver;
@@ -278,7 +286,9 @@ class Player {
         handR = reach(shR, add(racketCenter, mul(h, GRIP)), 0.57);
         elbowR = solveJoint(shR, handR, 0.3, 0.28, pole);
         const toElbow = perp(sub(elbowR, handR), this.n);
-        if (len(toElbow) > 1e-6) h = rotAround(unit(toElbow), this.n, (this.gripSign || 1) * GRIP_ANGLE);
+        // 斜めの握り（先が上がる向き）と、手首の曲げ（先が下がる向き）
+        const wrist = keyed(WRIST[this.shot.stroke] || WRIST.fh, t);
+        if (len(toElbow) > 1e-6) h = rotAround(unit(toElbow), this.n, (this.gripSign || 1) * (GRIP_ANGLE - wrist));
       }
       handle = h;
       // 手が届かないときは手をとどく所まで引き寄せ、ラケットは必ず手に持たせる
@@ -304,9 +314,9 @@ class Player {
   }
 
   readyRacket(j) {
-    // 構えのとき：体の前、おなかの高さ
-    const side = this.shot.stroke === "bh" ? 0.02 : -0.2;
-    return add(add(add(j.chest, mul(j.fwd, 0.4)), mul(j.left, side)), [0, 0, -0.22]);
+    // 構えのとき：体の前、おなかの高さ（バックは胸の前）
+    const bh = this.shot.stroke === "bh";
+    return add(add(add(j.chest, mul(j.fwd, bh ? 0.35 : 0.4)), mul(j.left, bh ? 0.02 : -0.2)), [0, 0, bh ? -0.04 : -0.22]);
   }
 
   build(scene) {
