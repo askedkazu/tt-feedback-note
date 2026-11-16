@@ -58,6 +58,16 @@ function solveJoint(a, c, l1, l2, poleDir) {
   p = len(p) < 1e-6 ? [0, 0, -1] : unit(p);
   return add(add(a, mul(dir, x)), mul(p, h));
 }
+// ベクトル v を、軸 k（単位ベクトル）のまわりに ang ラジアン回す
+function rotAround(v, k, ang) {
+  const c = Math.cos(ang), s = Math.sin(ang);
+  return add(add(mul(v, c), mul(cross(k, v), s)), mul(k, dot(k, v) * (1 - c)));
+}
+// 時刻 t のときのベクトルを、[時刻, ベクトル] の表から読む
+const keyedV = (keys, t) => [0, 1, 2].map((i) => keyed(keys.map(([kt, v]) => [kt, v[i]]), t));
+// a から n に垂直な成分だけを取り出す
+const perp = (a, n) => sub(a, mul(n, dot(a, n)));
+
 // 腕が届かないときは、手をとどく所まで引き寄せる
 function reach(a, c, maxLen) {
   const d = sub(c, a);
@@ -71,6 +81,7 @@ const VIEWS = {
   top: { label: "上", pos: [-0.4, 4.8, 0.01], target: [-0.4, 0.76, 0] },
   front: { label: "相手側", pos: [3.4, 1.6, 0.0], target: [-0.6, 0.85, 0] },
   impact: { label: "インパクト" }, // 打つ瞬間の拡大（位置は技ごとに計算）
+  grip: { label: "持ち方" }, // ラケットを持つ手を追いかける
 };
 const RATES = [
   { label: "1/4", value: 0.25 },
@@ -131,6 +142,26 @@ const STROKES = {
   serve: { pelvis: [-0.3, 0.32], feetR: [-0.12, -0.24], feetL: [0.2, 0.26], yaw: [-1.0, -0.7, -0.35], lean: 0.38, ready: -0.8 },
 };
 
+/* スイングの形（右利き・体から見た位置：前＝x、左＝y、上＝z、腰が原点）
+   back＝引いたときのラケット、follow＝振り抜いたときのラケット */
+const SWINGS = {
+  fh: {
+    drive: { back: [-0.05, -0.55, -0.3], follow: [0.3, 0.08, 0.62] }, // 腰の横まで低く引き、おでこの前まで振り抜く
+    hit: { back: [0.05, -0.5, -0.05], follow: [0.35, 0.0, 0.45] },
+  },
+  bh: {
+    drive: { back: [0.22, 0.03, -0.22], follow: [0.5, -0.32, 0.32] }, // おなかの前から、右上へ
+    hit: { back: [0.25, 0.05, -0.05], follow: [0.5, -0.22, 0.18] },
+  },
+};
+// ひじの向き（体から見た向き）：引き → 打球 → 振り抜き
+const ELBOW_POLE = {
+  fh: [[-0.3, [-0.4, -0.7, -0.6]], [0, [0.1, -0.8, -0.5]], [0.22, [0.3, -0.7, 0.35]]],
+  bh: [[-0.3, [0.5, -0.4, -0.6]], [0, [0.5, -0.7, -0.3]], [0.22, [0.4, -0.8, 0.2]]],
+  serve: [[-0.3, [-0.3, -0.8, 0.1]], [0, [0, -0.8, -0.5]], [0.22, [0.2, -0.8, -0.4]]],
+};
+const GRIP_ANGLE = 0.45; // シェークハンドは、グリップを前腕に対して斜め（約25°）に握る
+
 class Player {
   constructor(scene, shot, contact) {
     this.shot = shot;
@@ -155,18 +186,47 @@ class Player {
     const n = contact.n, D = contact.swing;
     this.n = n;
     this.c0 = sub(p0, mul(n, 0.02 + 0.006));
-    const headAtContact = this.joints(0, null).head;
-    const H = unit(sub(headAtContact, this.c0));
-    const pts = [
-      sub(this.c0, mul(D, 0.55)),
-      sub(this.c0, mul(D, 0.27)),
-      this.c0,
-      add(this.c0, mul(D, 0.27)),
-      add(add(this.c0, mul(D, 0.4)), mul(H, 0.3)),
-    ].map((p) => new THREE.Vector3(...p));
+    // スイングの種類：ドライブ（大きく振り上げる）、打つ、ツッツキ（下へ）、台上（小さく）、サーブ
+    const compact = this.reachOver > 0.05 && shot.stroke !== "serve";
+    const kind =
+      shot.stroke === "serve" ? "serve" : contact.swingDeg < -5 ? "push" : compact ? "short" : (contact.racketSpeed || 0) > 10 ? "drive" : "hit";
+    this.kind = kind;
+    let back, follow;
+    const tpl = SWINGS[shot.stroke]?.[kind];
+    if (tpl) {
+      back = this.bodyPoint(tpl.back, this.yawAt(-0.3));
+      follow = this.bodyPoint(tpl.follow, this.yawAt(0.22));
+    } else {
+      // ツッツキ・台上・サーブは、振る向きにそって短く（サーブは上から振り下ろす）
+      const L = { push: [0.28, 0.25, 0.04], short: [0.18, 0.28, -0.03], serve: [0.32, 0.35, 0.12] }[kind];
+      back = add(sub(this.c0, mul(D, L[0])), [0, 0, L[2]]);
+      follow = add(this.c0, mul(D, L[1]));
+    }
+    // 打つ瞬間の前後は、振る向き（D）にまっすぐ通す
+    const pts = [back, sub(this.c0, mul(D, 0.15)), this.c0, add(this.c0, mul(D, 0.15)), follow].map((p) => new THREE.Vector3(...p));
     this.curve = new THREE.CatmullRomCurve3(pts, false, "centripetal");
+    this.elbowKeys = ELBOW_POLE[shot.stroke] || ELBOW_POLE.fh;
+
+    // 斜めの握り：打つ瞬間にラケットの先が上を向く側に傾ける
+    // どちらに傾けてもラケットの真ん中は同じなので、手の高さで比べる：手が低い方＝ラケットの先が上
+    this.gripSign = this._handZ(1) <= this._handZ(-1) ? 1 : -1;
 
     this.build(scene);
+  }
+
+  /** 体から見た位置（腰が原点、前・左・上）を、物理の座標にする */
+  bodyPoint(p, yaw) {
+    const fwd = [Math.cos(yaw), Math.sin(yaw), 0];
+    const left = [-Math.sin(yaw), Math.cos(yaw), 0];
+    return add(add(add(this.pelvis0, mul(fwd, p[0])), mul(left, p[1])), [0, 0, p[2]]);
+  }
+
+  _handZ(sign) {
+    const keep = this.gripSign;
+    this.gripSign = sign;
+    const z = this.joints(0, this.c0).handR[2];
+    this.gripSign = keep;
+    return z;
   }
 
   /** 時刻 t の体のひねり（ラジアン） */
@@ -208,11 +268,22 @@ class Player {
     // 右手：ラケットのグリップ
     let handR = null, elbowR = null, handle = null;
     if (racketCenter) {
-      const toSh = sub(shR, racketCenter);
-      handle = unit(sub(toSh, mul(this.n, dot(toSh, this.n))));
+      // ひじの向き（引き → 打球 → 振り抜きで、下・後ろ → 横 → 肩の高さへ）
+      const pl = keyedV(this.elbowKeys || ELBOW_POLE.fh, t);
+      const pole = add(add(mul(fwd, pl[0]), mul(left, pl[1])), [0, 0, pl[2]]);
+      // グリップは前腕の延長線上に、斜めに握る（何回か計算して、手・ひじ・グリップの向きをそろえる）
+      let h = perp(sub(shR, racketCenter), this.n);
+      h = len(h) > 1e-6 ? unit(h) : [0, 0, 1];
+      for (let k = 0; k < 3; k++) {
+        handR = reach(shR, add(racketCenter, mul(h, GRIP)), 0.57);
+        elbowR = solveJoint(shR, handR, 0.3, 0.28, pole);
+        const toElbow = perp(sub(elbowR, handR), this.n);
+        if (len(toElbow) > 1e-6) h = rotAround(unit(toElbow), this.n, (this.gripSign || 1) * GRIP_ANGLE);
+      }
+      handle = h;
       // 手が届かないときは手をとどく所まで引き寄せ、ラケットは必ず手に持たせる
       handR = reach(shR, add(racketCenter, mul(handle, GRIP)), 0.57);
-      elbowR = solveJoint(shR, handR, 0.3, 0.28, add(add(mul(left, -0.8), [0, 0, -0.6]), mul(fwd, -0.3)));
+      elbowR = solveJoint(shR, handR, 0.3, 0.28, pole);
       racketCenter = sub(handR, mul(handle, GRIP));
     }
     // 左手：バランスをとる（サーブではトスを上げる）
@@ -290,8 +361,9 @@ class Player {
     // 手（シェークハンドの握り）：グリップをにぎるこぶしと、面に添える親指・人差し指
     // 打つ面に親指（フォア）／人差し指（バック）が来るように、バックの技では指を反対にする
     const side = this.shot.stroke === "bh" ? -1 : 1;
-    const fist = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.045, 0.07), skin);
-    fist.position.z = GRIP;
+    // 手のひら（グリップの、親指と反対側をつつむ）
+    const fist = new THREE.Mesh(new THREE.BoxGeometry(0.052, 0.03, 0.075), skin);
+    fist.position.set(0.012, 0.004 * side, GRIP + 0.005);
     const fingerGeo = new THREE.CylinderGeometry(0.008, 0.008, 1, 8);
     const finger = (from, to) => {
       const m = new THREE.Mesh(fingerGeo, skin);
@@ -304,6 +376,14 @@ class Player {
     };
     const thumb = finger([0.012, 0.012 * side, 0.098], [0.004, 0.012 * side, 0.058]);
     const index = finger([-0.016, -0.012 * side, 0.092], [0.022, -0.012 * side, 0.035]);
+    // 残りの3本の指：グリップに巻きつける
+    const wrap = new THREE.TorusGeometry(0.018, 0.0065, 6, 14, Math.PI);
+    for (const z of [0.112, 0.13, 0.148]) {
+      const f = new THREE.Mesh(wrap, skin);
+      f.position.z = z;
+      f.rotation.z = side > 0 ? Math.PI : 0;
+      racket.add(f);
+    }
     racket.add(fist, thumb, index);
     g.add(racket);
     this.racket = racket;
@@ -478,7 +558,17 @@ class TrajectoryView {
   setView(key) {
     this.viewKey = key;
     let pos, target;
-    if (key === "impact") {
+    if (key === "grip") {
+      // 手元を横から追いかける（指で回すと見る向きを変えられる）
+      const p0 = this.shot.p0;
+      let side = unit(cross(this.contact.swing, [0, 0, 1]));
+      if (len(side) < 0.5) side = [0, 1, 0];
+      if (dot(side, sub(p0, this.player.pelvis0)) < 0) side = mul(side, -1);
+      this.gripOffset = toV3(add(add(mul(side, 0.5), [0.2, 0, 0]), [0, 0, 0.12]));
+      const rc = this.player.racket.position.clone();
+      pos = rc.clone().add(this.gripOffset);
+      target = rc;
+    } else if (key === "impact") {
       // 打つ点の横から、スイングの向きが見える位置に寄る
       const p0 = this.shot.p0;
       let side = unit(cross(this.contact.swing, [0, 0, 1]));
@@ -499,10 +589,10 @@ class TrajectoryView {
     }
     this.camera.position.copy(pos);
     this.controls.target.copy(target);
-    this.controls.minDistance = key === "impact" ? 0.15 : 0.8;
+    this.controls.minDistance = key === "impact" || key === "grip" ? 0.15 : 0.8;
     this.controls.update();
     this.impactGroup.visible = key === "impact";
-    this.player.setSeeThrough(key === "impact");
+    this.player.setSeeThrough(key === "impact" || key === "grip");
     this.root.querySelectorAll("[data-view]").forEach((b) => b.classList.toggle("on", b.dataset.view === key));
   }
 
@@ -762,8 +852,15 @@ class TrajectoryView {
       if (t >= 0) this.spinMark.position.copy(this.ball.position);
     }
 
+    // 「持ち方」の視点：ラケットを追いかける（指で回した向きはそのまま保つ）
+    if (this.viewKey === "grip") {
+      const rc = this.player.racket.position;
+      this.camera.position.copy(rc).add(this.gripOffset);
+      this.controls.target.copy(rc);
+    }
     this.clock.textContent = t < 0 ? `打つ ${Math.round(-t * 1000)} ミリ秒前` : `打って ${Math.round(t * 1000)} ミリ秒`;
     this.controls.update();
+    if (this.viewKey === "grip") this.gripOffset = this.camera.position.clone().sub(this.controls.target);
     this.renderer.render(this.scene, this.camera);
     this.raf = requestAnimationFrame(this.loop);
   }
