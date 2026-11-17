@@ -82,6 +82,7 @@ const VIEWS = {
   front: { label: "相手側", pos: [3.4, 1.6, 0.0], target: [-0.6, 0.85, 0] },
   impact: { label: "インパクト" }, // 打つ瞬間の拡大（位置は技ごとに計算）
   grip: { label: "持ち方" }, // ラケットを持つ手を追いかける
+  eye: { label: "自分視点" }, // 選手の目の高さから見る
 };
 const RATES = [
   { label: "1/4", value: 0.25 },
@@ -674,6 +675,7 @@ class Player {
     const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis).normalize();
     this.racket.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis));
     this.racket.position.copy(toV3(center));
+    this.lastJoints = j;
     return { center, joints: j };
   }
 }
@@ -784,7 +786,12 @@ class TrajectoryView {
   setView(key) {
     this.viewKey = key;
     let pos, target;
-    if (key === "grip") {
+    if (key === "eye") {
+      // 位置と向きは毎回の描画で、選手の頭に合わせる
+      const j = this.player.lastJoints || this.player.joints(this.t);
+      pos = toV3(j.head);
+      target = toV3([0.7, 0, TABLE.H]);
+    } else if (key === "grip") {
       // 手元を横から追いかける（指で回すと見る向きを変えられる）
       const p0 = this.shot.p0;
       let side = unit(cross(this.contact.swing, [0, 0, 1]));
@@ -816,6 +823,14 @@ class TrajectoryView {
     this.camera.position.copy(pos);
     this.controls.target.copy(target);
     this.controls.minDistance = key === "impact" || key === "grip" ? 0.15 : 0.8;
+    // 自分視点：広い画角にして、頭は表示しない（指で回す操作もしない）
+    const eye = key === "eye";
+    this.camera.fov = eye ? 75 : 45;
+    this.camera.updateProjectionMatrix();
+    this.controls.enabled = !eye;
+    this.player.parts.head.visible = !eye;
+    this.player.parts.neck.visible = !eye;
+    this.eyeLook = null;
     this.controls.update();
     this.impactGroup.visible = key === "impact";
     this.player.setSeeThrough(key === "impact" || key === "grip");
@@ -1078,6 +1093,17 @@ class TrajectoryView {
       if (t >= 0) this.spinMark.position.copy(this.ball.position);
     }
 
+    // 自分視点：目の位置（頭の少し前）から、相手コートの方を見ながらボールを目で追う
+    if (this.viewKey === "eye") {
+      const j = this.player.lastJoints;
+      const eyePos = add(add(j.head, mul(j.F, 0.06)), [0, 0, 0.02]);
+      const ballP = [this.ball.position.x, -this.ball.position.z * MIRROR, this.ball.position.y]; // 物理の座標にもどす
+      const want = lerpV([0.9, 0, TABLE.H + 0.1], ballP, 0.45);
+      this.eyeLook = this.eyeLook ? lerpV(this.eyeLook, want, 0.12) : want; // 目の動きをなめらかに
+      this.camera.position.copy(toV3(eyePos));
+      this.controls.target.copy(toV3(this.eyeLook));
+      this.camera.lookAt(this.controls.target);
+    }
     // 「持ち方」の視点：ラケットを追いかける（指で回した向きはそのまま保つ）
     if (this.viewKey === "grip") {
       const rc = this.player.racket.position;
