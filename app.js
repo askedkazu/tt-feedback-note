@@ -84,6 +84,7 @@
     openSessionId: null,
     framesCache: new Map(), // sessionId -> 保存した連続写真
     shotIds: new Set(), // 3Dの軌道が見られる技
+    patterns: [], // 組み立て（rally.js）
   };
 
   /* ==========================================================
@@ -268,7 +269,23 @@
     el.bookNote.textContent = isLefty()
       ? "左利き用に、左右を入れかえて表示しています（設定タブの利き手で変えられます）。タップでコツ・よくあるミス・自分の記録が見られます。"
       : "右利き・シェークハンドを基準に書いています。タップでコツ・よくあるミス・自分の記録が見られます。";
-    el.bookList.innerHTML = CATS.map((cat) => {
+    const patternsHtml = state.patterns.length
+      ? `<section><p class="cat-title">組み立て（3球目まで）</p>
+          <p class="text-xs text-slate-500 mb-2">サーブから3〜4球目までを、自分と相手の2人で3D再生。参考：わったさん（YouTube）</p>
+          <div class="space-y-2">${state.patterns
+            .map(
+              (pt) => `<button class="tech-item" data-pattern="${pt.id}">
+                <span class="tech-icon">🧩</span>
+                <span class="flex-1 min-w-0">
+                  <span class="block font-bold text-sm">${escapeHtml(pt.name)}</span>
+                  <span class="block text-xs text-slate-500 truncate">${pt.who === "serve" ? "自分のサーブから" : "相手のサーブから"}・${pt.shots.length}球</span>
+                </span>
+                <span class="text-xs text-slate-400">▶ 3D</span>
+              </button>`
+            )
+            .join("")}</div></section>`
+      : "";
+    el.bookList.innerHTML = patternsHtml + CATS.map((cat) => {
       const items = TECHS.filter((t) => t.cat === cat.id)
         .map((t) => {
           const mine = state.sessions.filter((x) => hasTech(x, t.id));
@@ -1376,6 +1393,8 @@ ${text}
         openSession(s.dataset.session);
         return;
       }
+      const pt = e.target.closest("[data-pattern]");
+      if (pt) return openPattern(pt.dataset.pattern, pt);
       const tr = e.target.closest("[data-traj]");
       if (tr) return openTrajectory(tr.dataset.traj, tr);
       const t = e.target.closest("[data-tech]");
@@ -1516,6 +1535,21 @@ ${text}
     }
   }
 
+  async function openPattern(id, btn) {
+    const pattern = state.patterns.find((x) => x.id === id);
+    if (!pattern) return;
+    btn.disabled = true;
+    try {
+      const mod = await import("./trajectory-view.js");
+      mod.openRally(pattern, { lefty: isLefty() });
+    } catch (err) {
+      console.error(err);
+      alert(`3Dの表示を読み込めませんでした。通信を確認してください。\n${err.message}`);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   /* ==========================================================
    * 起動
    * ========================================================== */
@@ -1526,5 +1560,11 @@ ${text}
   initCloud();
   import("./physics.js")
     .then((m) => (state.shotIds = new Set(Object.keys(m.SHOTS))))
+    .catch((err) => console.error(err));
+  import("./rally.js")
+    .then((m) => {
+      state.patterns = m.PATTERNS;
+      if (state.tab === "book") renderBook();
+    })
     .catch((err) => console.error(err));
 })();

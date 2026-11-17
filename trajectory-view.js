@@ -9,6 +9,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { SHOTS, TABLE, solveShot, simulate, contactRacket } from "./physics.js";
+import { buildRally } from "./rally.js";
 
 // 物理の座標（x:長さ, y:横, z:高さ）→ three.js の座標（y が上）
 // 左利きのときは MIRROR = -1 にして、横方向（物理の y）を反転して表示する
@@ -199,6 +200,31 @@ const FORMS = {
     contact: P(-4, 35, 0.08, [0.03, -0.05], [-30, -32], [5, 5], 15),
     follow: P(8, 33, 0.07, [0.05, -0.04], [-20, -18], [25, 35], 25, 10),
   },
+  // やなぎ（わったさんの動画の映像からの推測）：フォア側の遠い球に大きく踏み込み、腕を伸ばして、
+  // ラケットを低く寝かせたまま横に払う。相手の横回転を利用する
+  fhYanagi: {
+    stance: "fh", stepIn: true, tBack: -0.2, tFollow: 0.15,
+    ready: P(0, 30, 0.07, [0, 0], [-35, -45], [-5, 5], 20),
+    back: P(-20, 40, 0.1, [0, -0.08], [-95, -30], [-100, -35], 0, -10),
+    contact: P(-8, 40, 0.1, [0.02, -0.08], [-75, -25], [-55, -25], 0),
+    follow: P(10, 36, 0.08, [0.04, -0.04], [-40, -20], [10, -20], 5, 10),
+  },
+  // 流し（わったさんの動画の映像からの推測）：台上の短い球を、フォアで横に払うように流して返す
+  fhNagashi: {
+    stance: "fh", stepIn: true, tBack: -0.18, tFollow: 0.13,
+    ready: P(0, 32, 0.07, [0, 0], [-30, -45], [0, 10], 25),
+    back: P(-10, 36, 0.08, [0, -0.05], [-45, -40], [-40, 10], 20, 5),
+    contact: P(-3, 36, 0.08, [0.03, -0.06], [-35, -32], [0, 0], 20),
+    follow: P(8, 35, 0.08, [0.05, -0.05], [-15, -25], [35, -5], 15),
+  },
+  // ちょりドラ（わったさんの動画の映像からの推測）：台の近くで、短め〜ハーフロングの球を小さな振りでドライブする
+  fhChori: {
+    stance: "fh", stepIn: true, tBack: -0.2, tFollow: 0.14,
+    ready: P(0, 30, 0.07, [0, 0], [-35, -50], [-5, 0], 20),
+    back: P(-20, 34, 0.1, [-0.01, -0.06], [-55, -58], [-30, -35], 5, -10),
+    contact: P(-5, 32, 0.08, [0.02, -0.03], [-35, -38], [0, 5], 10),
+    follow: P(15, 28, 0.06, [0.04, 0.02], [-15, -10], [25, 40], 5, 10),
+  },
   // バック打ち：胸の前に構え、手首を内側に曲げておなかの前に引き寄せ、面を立てて前にはじき、顔の高さへ前上に
   bhLong: {
     stance: "bh", tBack: -0.2, tFollow: 0.15,
@@ -288,7 +314,10 @@ function spline(keys, t) {
 const rad = (d) => (d * Math.PI) / 180;
 
 class Player {
-  constructor(scene, shot, contact) {
+  /** flip：台の反対側（相手）の選手。計算は自分側の座標でして、表示のときに台の真ん中を中心に180°回す */
+  constructor(scene, shot, contact, { flip = false } = {}) {
+    this.flip = flip;
+    this.V = (p) => toV3(flip ? [-p[0], -p[1], p[2]] : p);
     this.shot = shot;
     this.contact = contact;
     // 技の形（図鑑の技は FORM_BY_TECH、スマホのスイングは打球の回転から選ぶ）
@@ -630,7 +659,7 @@ class Player {
   }
 
   setLimb(mesh, a, b) {
-    const A = toV3(a), B = toV3(b);
+    const A = this.V(a), B = this.V(b);
     const d = new THREE.Vector3().subVectors(B, A);
     const l = d.length();
     mesh.position.copy(A).addScaledVector(d, 0.5);
@@ -643,38 +672,38 @@ class Player {
     const center = j.racketCenter;
     const P = this.parts;
     this.setLimb(P.torso, j.pelvis, j.neck);
-    P.chestBall.position.copy(toV3(j.chest));
-    P.hipBall.position.copy(toV3(j.pelvis));
+    P.chestBall.position.copy(this.V(j.chest));
+    P.hipBall.position.copy(this.V(j.pelvis));
     this.setLimb(P.neck, j.neck, j.head);
-    P.head.position.copy(toV3(j.head));
+    P.head.position.copy(this.V(j.head));
     this.setLimb(P.upperR, j.shR, j.elbowR);
     this.setLimb(P.foreR, j.elbowR, j.handR);
-    P.shoulderR.position.copy(toV3(j.shR));
-    P.elbowR.position.copy(toV3(j.elbowR));
-    P.handR.position.copy(toV3(j.handR));
+    P.shoulderR.position.copy(this.V(j.shR));
+    P.elbowR.position.copy(this.V(j.elbowR));
+    P.handR.position.copy(this.V(j.handR));
     this.setLimb(P.upperL, j.shL, j.elbowL);
     this.setLimb(P.foreL, j.elbowL, j.handL);
-    P.shoulderL.position.copy(toV3(j.shL));
-    P.elbowL.position.copy(toV3(j.elbowL));
-    P.handL.position.copy(toV3(j.handL));
+    P.shoulderL.position.copy(this.V(j.shL));
+    P.elbowL.position.copy(this.V(j.elbowL));
+    P.handL.position.copy(this.V(j.handL));
     this.setLimb(P.thighR, j.hipR, j.kneeR);
     this.setLimb(P.shinR, j.kneeR, j.footR);
-    P.kneeR.position.copy(toV3(j.kneeR));
+    P.kneeR.position.copy(this.V(j.kneeR));
     this.setLimb(P.thighL, j.hipL, j.kneeL);
     this.setLimb(P.shinL, j.kneeL, j.footL);
-    P.kneeL.position.copy(toV3(j.kneeL));
-    const toe = toV3([Math.cos(this.heading), Math.sin(this.heading), 0]).normalize();
+    P.kneeL.position.copy(this.V(j.kneeL));
+    const toe = this.V([Math.cos(this.heading), Math.sin(this.heading), 0]).normalize();
     for (const [foot, pos] of [[P.footR, j.footR], [P.footL, j.footL]]) {
-      foot.position.copy(toV3(pos));
+      foot.position.copy(this.V(pos));
       foot.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), toe);
     }
 
     // ラケット：面の向き（n）とグリップの向き（handle）は、前腕のひねりと手首から決まる
-    const yAxis = toV3(j.n).normalize();
-    const zAxis = toV3(j.handle).normalize();
+    const yAxis = this.V(j.n).normalize();
+    const zAxis = this.V(j.handle).normalize();
     const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis).normalize();
     this.racket.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis));
-    this.racket.position.copy(toV3(center));
+    this.racket.position.copy(this.V(center));
     this.lastJoints = j;
     return { center, joints: j };
   }
@@ -684,7 +713,8 @@ class Player {
  * 3Dの画面
  * ========================================================== */
 class TrajectoryView {
-  constructor({ title, shot, solved, startView = "back", contact = null }) {
+  constructor({ title, shot, solved, startView = "back", contact = null, noInit = false }) {
+    if (noInit) return; // ラリーの画面（RallyView）は自分で準備する
     this.title = title;
     this.shot = shot;
     this.solved = solved;
@@ -695,6 +725,10 @@ class TrajectoryView {
     this.playing = true;
     this.showGhost = true;
     this.duration = solved.withSpin.points.at(-1).t;
+    this.start(startView);
+  }
+
+  start(startView) {
     this.buildDom();
     this.buildScene();
     this.setView(startView);
@@ -828,17 +862,21 @@ class TrajectoryView {
     this.camera.fov = eye ? 75 : 45;
     this.camera.updateProjectionMatrix();
     this.controls.enabled = !eye;
-    this.player.parts.head.visible = !eye;
-    this.player.parts.neck.visible = !eye;
+    for (const pl of this.players || [this.player]) {
+      if (pl.flip) continue; // 相手の頭はそのまま
+      pl.parts.head.visible = !eye;
+      pl.parts.neck.visible = !eye;
+    }
     this.eyeLook = null;
     this.controls.update();
-    this.impactGroup.visible = key === "impact";
+    if (this.impactGroup) this.impactGroup.visible = key === "impact";
     this.player.setSeeThrough(key === "impact" || key === "grip");
     this.root.querySelectorAll("[data-view]").forEach((b) => b.classList.toggle("on", b.dataset.view === key));
   }
 
   /* ---------- 3Dの場面 ---------- */
-  buildScene() {
+  /** 会場（床・台・ネット・カメラ・ライト） */
+  buildArena() {
     const renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer = renderer;
@@ -895,6 +933,11 @@ class TrajectoryView {
     tape.position.set(0, TABLE.H + TABLE.NET, 0);
     scene.add(tape);
 
+  }
+
+  buildScene() {
+    this.buildArena();
+    const scene = this.scene;
     // 選手
     this.player = new Player(scene, this.shot, this.contact);
 
@@ -1093,17 +1136,7 @@ class TrajectoryView {
       if (t >= 0) this.spinMark.position.copy(this.ball.position);
     }
 
-    // 自分視点：目の位置（頭の少し前）から、相手コートの方を見ながらボールを目で追う
-    if (this.viewKey === "eye") {
-      const j = this.player.lastJoints;
-      const eyePos = add(add(j.head, mul(j.F, 0.06)), [0, 0, 0.02]);
-      const ballP = [this.ball.position.x, -this.ball.position.z * MIRROR, this.ball.position.y]; // 物理の座標にもどす
-      const want = lerpV([0.9, 0, TABLE.H + 0.1], ballP, 0.45);
-      this.eyeLook = this.eyeLook ? lerpV(this.eyeLook, want, 0.12) : want; // 目の動きをなめらかに
-      this.camera.position.copy(toV3(eyePos));
-      this.controls.target.copy(toV3(this.eyeLook));
-      this.camera.lookAt(this.controls.target);
-    }
+    if (this.viewKey === "eye") this.updateEye();
     // 「持ち方」の視点：ラケットを追いかける（指で回した向きはそのまま保つ）
     if (this.viewKey === "grip") {
       const rc = this.player.racket.position;
@@ -1115,6 +1148,19 @@ class TrajectoryView {
     if (this.viewKey === "grip") this.gripOffset = this.camera.position.clone().sub(this.controls.target);
     this.renderer.render(this.scene, this.camera);
     this.raf = requestAnimationFrame(this.loop);
+  }
+
+  /** 自分視点：目の位置（頭の少し前）から、相手コートの方を見ながらボールを目で追う */
+  updateEye() {
+    const j = this.player.lastJoints;
+    if (!j) return;
+    const eyePos = add(add(j.head, mul(j.F, 0.06)), [0, 0, 0.02]);
+    const ballP = [this.ball.position.x, -this.ball.position.z * MIRROR, this.ball.position.y]; // 物理の座標にもどす
+    const want = lerpV([0.9, 0, TABLE.H + 0.1], ballP, 0.45);
+    this.eyeLook = this.eyeLook ? lerpV(this.eyeLook, want, 0.12) : want; // 目の動きをなめらかに
+    this.camera.position.copy(toV3(eyePos));
+    this.controls.target.copy(toV3(this.eyeLook));
+    this.camera.lookAt(this.controls.target);
   }
 
   /* ---------- 動画として保存（1回分の再生を録画） ---------- */
@@ -1165,5 +1211,189 @@ class TrajectoryView {
     this.renderer.dispose();
     this.root.remove();
     document.body.style.overflow = "";
+  }
+}
+
+/* ==========================================================
+ * 組み立て（サーブから3〜4球目まで）を2人で再生する画面
+ * ========================================================== */
+export function openRally(pattern, { lefty = false } = {}) {
+  closeTrajectory();
+  MIRROR = lefty ? -1 : 1;
+  current = new RallyView(pattern);
+}
+
+const CIRCLED = ["①", "②", "③", "④", "⑤", "⑥"];
+
+class RallyView extends TrajectoryView {
+  constructor(pattern) {
+    super({ noInit: true });
+    this.pattern = pattern;
+    this.shots = buildRally(pattern);
+    this.title = pattern.name;
+    this.rate = 0.5;
+    this.t = T_START;
+    this.playing = true;
+    const last = this.shots.at(-1);
+    this.duration = last.t0 + last.sim.points.at(-1).t;
+    this.start("back");
+  }
+
+  buildDom() {
+    const steps = this.shots
+      .map((s, i) => `<li data-step="${i}"><b>${CIRCLED[i]} ${s.who === "me" ? "自分" : "相手"}</b>${lr(s.label)}</li>`)
+      .join("");
+    const tips = this.pattern.tips.map((t) => `<li>${lr(t)}</li>`).join("");
+    const views = ["back", "side", "top", "front", "eye"];
+    const root = document.createElement("div");
+    root.className = "traj-overlay";
+    root.innerHTML = `
+      <div class="traj-head">
+        <button class="traj-close" aria-label="閉じる">✕</button>
+        <div class="flex-1 min-w-0">
+          <p class="traj-title">🧩 ${this.pattern.name}</p>
+          <p class="traj-sub">${this.pattern.who === "serve" ? "自分のサーブから" : "相手のサーブから"}・オレンジ＝自分の打球、水色＝相手の打球</p>
+        </div>
+      </div>
+      <div class="traj-stage"><canvas></canvas><p class="traj-clock"></p></div>
+      <div class="traj-panel">
+        <ol class="rally-steps">${steps}</ol>
+        <ul class="rally-tips">${tips}</ul>
+        <div class="traj-row">
+          <button class="traj-play">一時停止</button>
+          <div class="traj-seg" data-group="rate">${RATES.map((r) => `<button data-rate="${r.value}">${r.label}</button>`).join("")}</div>
+        </div>
+        <div class="traj-row">
+          <div class="traj-seg traj-views" data-group="view">${views.map((k) => `<button data-view="${k}">${VIEWS[k].label}</button>`).join("")}</div>
+        </div>
+        <button class="traj-rec">🎬 動画として保存</button>
+        <p class="traj-foot">参考：わったさん（YouTube）の動画。打球は物理計算による例です（相手も${MIRROR < 0 ? "左" : "右"}利き）。</p>
+      </div>`;
+    document.body.appendChild(root);
+    document.body.style.overflow = "hidden";
+    this.root = root;
+    this.canvas = root.querySelector("canvas");
+    this.clock = root.querySelector(".traj-clock");
+    root.querySelector(".traj-close").onclick = () => closeTrajectory();
+    this.playBtn = root.querySelector(".traj-play");
+    this.playBtn.onclick = () => {
+      this.playing = !this.playing;
+      if (this.playing && this.t >= this.duration) this.t = T_START;
+      this.playBtn.textContent = this.playing ? "一時停止" : "▶ 再生";
+    };
+    root.querySelector('[data-group="rate"]').onclick = (e) => {
+      const b = e.target.closest("[data-rate]");
+      if (b) this.setRate(Number(b.dataset.rate));
+    };
+    root.querySelector('[data-group="view"]').onclick = (e) => {
+      const b = e.target.closest("[data-view]");
+      if (b) this.setView(b.dataset.view);
+    };
+    this.recBtn = root.querySelector(".traj-rec");
+    this.recBtn.onclick = () => this.record();
+    this.setRate(this.rate);
+  }
+
+  buildScene() {
+    this.buildArena();
+    const scene = this.scene;
+    // 打球ごとに、打つ人の体の動きを作る（相手は台の反対側）
+    this.strokes = this.shots.map((s) => {
+      const form = s.form || FORM_BY_TECH[s.tech] || "fhLong";
+      const stance = FORMS[form].stance;
+      const shot = { p0: s.own.p0, spin: s.spin, stroke: stance === "serve" ? "serve" : stance, form };
+      const player = new Player(scene, shot, s.contact, { flip: s.who === "opp" });
+      player.group.visible = false;
+      return { ...s, player };
+    });
+    this.players = this.strokes.map((x) => x.player);
+    this.player = this.strokes.find((x) => x.who === "me").player;
+    // 軌道：自分の打球はオレンジ、相手は水色
+    this.paths = this.shots.map((s) => {
+      const p = this.makePath(s.sim, s.who === "me" ? 0xfbbf24 : 0x7dd3fc, s.who === "me" ? 0xf97316 : 0x38bdf8);
+      this.scene.add(p.group);
+      return p;
+    });
+    this.ball = this.makeBall();
+    scene.add(this.ball);
+    this.onResize = () => this.resize();
+    window.addEventListener("resize", this.onResize);
+    this.resize();
+  }
+
+  /** サーブのトス（打つ前のボール） */
+  tossPos(t) {
+    const s = this.strokes[0];
+    const palm = s.player.tossPalm();
+    const p0 = s.own.p0;
+    const tUp = -0.54;
+    let p;
+    if (t < tUp) p = palm;
+    else {
+      const k = (t - tUp) / -tUp;
+      const base = lerpV(palm, p0, k);
+      p = [base[0], base[1], lerp(palm[2], p0[2], k) + 4 * 0.36 * k * (1 - k)];
+    }
+    return s.who === "opp" ? [-p[0], -p[1], p[2]] : p;
+  }
+
+  loop(now) {
+    const dt = Math.min(0.05, (now - this.last) / 1000);
+    this.last = now;
+    if (this.playing) {
+      this.t += dt * this.rate;
+      if (this.t > this.duration + END_PAUSE * this.rate) {
+        if (this.recorder) this.stopRecord();
+        this.t = T_START;
+        this.ball.rotation.set(0, 0, 0);
+      }
+    }
+    const t = Math.min(this.t, this.duration);
+
+    // 選手：それぞれ、いま担当している打球の体の動き（打つ時刻の前後で切りかえる）
+    for (const who of ["me", "opp"]) {
+      const list = this.strokes.filter((x) => x.who === who);
+      let k = 0;
+      for (let i = 1; i < list.length; i++) if (t >= (list[i - 1].t0 + list[i].t0) / 2) k = i;
+      list.forEach((x, i) => (x.player.group.visible = i === k));
+      list[k].player.update(t - list[k].t0);
+      if (who === "me") this.player = list[k].player;
+    }
+
+    // ボール：いまの打球（サーブの前はトス）
+    let i = -1;
+    this.shots.forEach((s, j) => {
+      if (t >= s.t0) i = j;
+    });
+    if (i < 0) this.ball.position.copy(toV3(this.tossPos(t)));
+    else {
+      const sh = this.shots[i];
+      const sm = this.sample(sh.sim, t - sh.t0);
+      this.ball.position.copy(toV3(sm.p));
+      const w = toAxis(sm.w);
+      const wLen = w.length();
+      if (wLen > 1e-6 && this.playing) {
+        const visual = Math.min((wLen / (2 * Math.PI)) * this.rate, MAX_VISUAL_SPIN) * 2 * Math.PI;
+        this.ball.rotateOnWorldAxis(w.normalize(), visual * dt);
+      }
+      this.paths.forEach((p, j) => {
+        p.trail.geometry.setDrawRange(0, j < i ? p.pts.length : j === i ? sm.i + 1 : 0);
+        p.group.children[0].visible = j <= i; // うすい線も、打ったあとだけ
+        p.marks.forEach((m) => (m.ring.visible = j < i || (j === i && t - sh.t0 >= m.t)));
+      });
+    }
+    if (i < 0) this.paths.forEach((p) => {
+      p.trail.geometry.setDrawRange(0, 0);
+      p.group.children[0].visible = false;
+      p.marks.forEach((m) => (m.ring.visible = false));
+    });
+    this.root.querySelectorAll(".rally-steps li").forEach((li) => li.classList.toggle("on", Number(li.dataset.step) === Math.max(0, i)));
+
+    if (this.viewKey === "eye") this.updateEye();
+    const step = this.shots[Math.max(0, i)];
+    this.clock.textContent = `${CIRCLED[Math.max(0, i)]} ${step.who === "me" ? "自分" : "相手"}：${lr(step.label)}`;
+    this.controls.update();
+    this.renderer.render(this.scene, this.camera);
+    this.raf = requestAnimationFrame(this.loop);
   }
 }
