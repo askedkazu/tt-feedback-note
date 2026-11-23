@@ -22,6 +22,7 @@
   const LS = {
     profile: "ttNote.profile",
     sessions: "ttNote.sessions", // 記録のキャッシュ（ログインしていないときは、これが本体）
+    questions: "ttNote.questions", // 質問箱（同じく）
     bests: "ttNote.bests",
   };
 
@@ -85,6 +86,8 @@
     framesCache: new Map(), // sessionId -> 保存した連続写真
     shotIds: new Set(), // 3Dの軌道が見られる技
     patterns: [], // 組み立て（rally.js）
+    questions: loadJSON(LS.questions, []), // 質問箱：{ id, ts, q, techId, answer, points, remember, techIds }（新しい順）
+    asking: false,
   };
 
   /* ==========================================================
@@ -131,6 +134,7 @@
     node.classList.toggle("hidden", !text);
   }
   function persistLocal() {
+    saveJSON(LS.questions, state.questions);
     saveJSON(LS.sessions, state.sessions);
     saveJSON(LS.bests, state.bests);
   }
@@ -138,11 +142,11 @@
   /* ==========================================================
    * タブ・画面切り替え
    * ========================================================== */
-  const TAB_TITLES = { home: "ホーム", book: "技の図鑑", record: "記録", settings: "設定", flow: "練習" };
+  const TAB_TITLES = { home: "ホーム", book: "技の図鑑", ask: "質問箱", record: "記録", settings: "設定", flow: "練習" };
 
   function showTab(tab) {
     state.tab = tab;
-    for (const name of ["home", "book", "record", "settings", "flow"]) {
+    for (const name of ["home", "book", "ask", "record", "settings", "flow"]) {
       $(`tab${name[0].toUpperCase()}${name.slice(1)}`).classList.toggle("hidden", name !== tab);
     }
     el.tabBar.classList.toggle("hidden", tab === "flow");
@@ -152,6 +156,7 @@
     if (tab === "home") renderHome();
     if (tab === "book") renderBook();
     if (tab === "record") renderRecord();
+    if (tab === "ask") renderAsk();
     window.scrollTo(0, 0);
   }
 
@@ -341,6 +346,10 @@
     el.techStartBtn.onclick = () => {
       closeModal(el.techModal);
       startFlow(t.id);
+    };
+    el.techAskBtn.onclick = () => {
+      closeModal(el.techModal);
+      openAsk(t.id);
     };
     openModal(el.techModal);
   }
@@ -1132,6 +1141,170 @@ ${text}
   }
 
   /* ==========================================================
+   * 質問箱（AIコーチに質問する）
+   * ========================================================== */
+  const ASK_HINTS = [
+    "チキータがネットにかかるのはなぜ？",
+    "バックドライブで手首はどう使う？",
+    "下回転サーブの回転を強くするには？",
+    "フォアドライブが安定しない",
+    "試合で緊張しないコツは？",
+    "左利きが有利なサーブのコースは？",
+  ];
+
+  function openAsk(techId = "") {
+    showTab("ask");
+    el.askTech.value = techId;
+    el.askText.focus();
+  }
+
+  function renderAsk() {
+    el.askChips.innerHTML = ASK_HINTS.map((h) => `<button class="pick-chip text-xs" data-askhint="${escapeHtml(h)}">${escapeHtml(h)}</button>`).join("");
+    if (el.askTech.options.length <= 1) {
+      el.askTech.innerHTML +=
+        TECHS.map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join("");
+    }
+    el.askBtn.disabled = state.asking;
+    el.askList.innerHTML = state.questions.length
+      ? state.questions.map(qaHtml).join("")
+      : `<p class="empty-note">まだ質問がありません。気になることを聞いてみよう</p>`;
+  }
+
+  function qaHtml(x) {
+    const paras = String(x.answer || "")
+      .split(/\n+/)
+      .filter((p) => p.trim())
+      .map((p) => `<p>${escapeHtml(p)}</p>`)
+      .join("");
+    const points = (x.points || []).map((p) => `<li>${escapeHtml(p)}</li>`).join("");
+    const techs = (x.techIds || [])
+      .filter((id) => techById[id])
+      .map((id) => `<button class="check-chip" data-tech="${id}">${techById[id].icon} ${escapeHtml(techById[id].name)}</button>`)
+      .join("");
+    return `
+      <div class="qa-item">
+        <p class="qa-q">${escapeHtml(x.q)}</p>
+        <div class="qa-a">${paras}</div>
+        ${points ? `<ul class="qa-points">${points}</ul>` : ""}
+        ${x.remember ? `<p class="qa-remember">🧠 合言葉：${escapeHtml(x.remember)}</p>` : ""}
+        ${techs ? `<div class="mt-3">${techs}</div>` : ""}
+        <div class="qa-meta">
+          <span>${fmtDate(x.ts, true)}${x.techId && techById[x.techId] ? `・${escapeHtml(techById[x.techId].name)}について` : ""}</span>
+          <span class="flex-1"></span>
+          <button class="underline" data-askagain="${x.id}">続けて聞く</button>
+          <button class="underline" data-qdel="${x.id}">消す</button>
+        </div>
+      </div>`;
+  }
+
+  async function ask() {
+    const q = el.askText.value.trim();
+    if (!q || state.asking) return;
+    const techId = el.askTech.value;
+    state.asking = true;
+    showMsg(el.askMsg, "");
+    el.askBtn.disabled = true;
+    // 考え中の表示
+    const thinking = document.createElement("div");
+    thinking.className = "qa-item";
+    thinking.innerHTML = `<p class="qa-q">${escapeHtml(q)}</p><div class="qa-thinking mt-3"><span class="spinner" style="width:1.2rem;height:1.2rem"></span>AIコーチが考え中…</div>`;
+    el.askList.prepend(thinking);
+
+    const recent = state.sessions
+      .slice(0, 6)
+      .map(
+        (x) =>
+          `- ${fmtDate(x.ts)}（${techLabel(x)}）：課題「${x.feedback?.fixes?.map((y) => y.point).join("、") || x.advice?.actions?.join("、") || "なし"}」／振り返り「${(x.reflection || "なし").slice(0, 100)}」`
+      )
+      .join("\n");
+    const t = techId ? tx(techById[techId]) : null;
+    const history = state.questions
+      .slice(0, 3)
+      .reverse()
+      .map((x) => `Q：${x.q}\nA：${(x.answer || "").slice(0, 300)}`)
+      .join("\n\n");
+    const techList = TECHS.map((x) => `${x.id}=${x.name}`).join(", ");
+    const prompt = `あなたは経験豊富な卓球のコーチです。選手からの質問に答えてください。
+
+# 選手
+${profileText()}
+${isLefty() ? "※左利き。左右が関係することは、左利き用に答える。\n" : ""}- 部活中はスマホを使えない。練習中は頭の中で思い出すしかない
+
+# 最近の練習の記録（新しい順）
+${recent || "（まだなし）"}
+
+${t ? `# 質問に関係する技：${t.name}\n- 要点：${t.tips.join(" / ")}\n- よくあるミス：${t.mistakes.join(" / ")}\n` : ""}
+# これまでのやりとり（古い順。続きの質問のときに使う）
+${history || "（なし）"}
+
+# 質問
+${q}
+
+# 出力のルール
+- answer：質問への答え。結論を先に書き、理由と具体的なやり方を続ける。全体で300〜500字くらい。段落は改行で区切る
+- 選手のプロフィールや最近の記録と関係があるときは、それにふれる
+- points：要点を2〜4個（短く）
+- remember：練習中に思い出せる短い合言葉を1つ（例：「前でとらえる」）。いらなければ空文字
+- techIds：答えに関係する技のidを最大3つ（次の一覧から）：${techList}
+- 分からないこと・人によって違うことは断定しない。けがや痛みの相談には、無理をせず指導者や医療機関に相談するよう伝える
+- 中学生にも分かるやさしい日本語で。専門用語は使ってよいが、必要なら短く説明する`;
+
+    try {
+      const { Schema } = requireAI();
+      const schema = Schema.object({
+        properties: {
+          answer: Schema.string(),
+          points: Schema.array({ items: Schema.string() }),
+          remember: Schema.string(),
+          techIds: Schema.array({ items: Schema.string() }),
+        },
+      });
+      const obj = await callAI([prompt], schema);
+      const str = (v) => (typeof v === "string" ? v.trim() : "");
+      const item = {
+        id: newId(),
+        ts: Date.now(),
+        q,
+        techId,
+        answer: str(obj.answer),
+        points: (obj.points || []).map(str).filter(Boolean).slice(0, 4),
+        remember: str(obj.remember),
+        techIds: (obj.techIds || []).map(str).filter((id) => techById[id]).slice(0, 3),
+      };
+      if (!item.answer) throw new Error("AIから答えが返ってきませんでした。もう一度お試しください");
+      if (cloud.user) {
+        const { doc, setDoc } = cloud.fs;
+        await setDoc(doc(cloud.db, "tt_users", cloud.user.uid, "questions", item.id), item).catch((err) => {
+          console.error(err);
+          item.local = true;
+        });
+      } else item.local = true;
+      state.questions.unshift(item);
+      persistLocal();
+      el.askText.value = "";
+    } catch (err) {
+      console.error(err);
+      showMsg(el.askMsg, err.message);
+    } finally {
+      state.asking = false;
+      thinking.remove();
+      renderAsk();
+    }
+  }
+
+  async function deleteQuestion(id) {
+    if (!confirm("この質問を消しますか？")) return;
+    const x = state.questions.find((q) => q.id === id);
+    state.questions = state.questions.filter((q) => q.id !== id);
+    persistLocal();
+    renderAsk();
+    if (cloud.user && x && !x.local) {
+      const { doc, deleteDoc } = cloud.fs;
+      await deleteDoc(doc(cloud.db, "tt_users", cloud.user.uid, "questions", id)).catch((err) => console.error(err));
+    }
+  }
+
+  /* ==========================================================
    * AI（Firebase AI Logic 経由の Gemini）
    * ========================================================== */
   function requireAI() {
@@ -1306,6 +1479,7 @@ ${text}
     await cloud.authMod.signOut(cloud.auth);
     // この端末のキャッシュは消す（ログインしていない間の記録は残す）
     state.sessions = state.sessions.filter((x) => x.local);
+    state.questions = state.questions.filter((x) => x.local);
     state.bests = {};
     state.framesCache.clear();
     persistLocal();
@@ -1316,9 +1490,10 @@ ${text}
     const { doc, getDoc, setDoc, collection, getDocs, query, orderBy, limit } = cloud.fs;
     const uid = cloud.user.uid;
     const userRef = doc(cloud.db, "tt_users", uid);
-    const [userSnap, sessSnap] = await Promise.all([
+    const [userSnap, sessSnap, qSnap] = await Promise.all([
       getDoc(userRef),
       getDocs(query(collection(cloud.db, "tt_users", uid, "sessions"), orderBy("ts", "desc"), limit(500))),
+      getDocs(query(collection(cloud.db, "tt_users", uid, "questions"), orderBy("ts", "desc"), limit(200))),
     ]);
     const data = userSnap.exists() ? userSnap.data() : null;
     if (data?.profile) {
@@ -1338,6 +1513,15 @@ ${text}
     }
     state.sessions = remote.sort((a, b) => b.ts - a.ts);
     state.bests = data?.bests || {};
+    // 質問箱：ログインしていない間の質問もアカウントに送る
+    const remoteQ = qSnap.docs.map((d) => d.data());
+    const qIds = new Set(remoteQ.map((x) => x.id));
+    for (const x of state.questions.filter((q) => q.local && !qIds.has(q.id))) {
+      const { local, ...rest } = x;
+      await setDoc(doc(cloud.db, "tt_users", uid, "questions", x.id), rest);
+      remoteQ.push(rest);
+    }
+    state.questions = remoteQ.sort((a, b) => b.ts - a.ts);
     persistLocal();
     if (!data || locals.length) await pushUserDoc();
   }
@@ -1416,6 +1600,28 @@ ${text}
     });
 
     el.startBtn.addEventListener("click", startReflect);
+    // 質問箱
+    el.askBtn.addEventListener("click", ask);
+    el.askChips.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-askhint]");
+      if (b) {
+        el.askText.value = b.dataset.askhint;
+        el.askText.focus();
+      }
+    });
+    el.askList.addEventListener("click", (e) => {
+      const d = e.target.closest("[data-qdel]");
+      if (d) return deleteQuestion(d.dataset.qdel);
+      const a = e.target.closest("[data-askagain]");
+      if (a) {
+        const x = state.questions.find((q) => q.id === a.dataset.askagain);
+        el.askTech.value = x?.techId || "";
+        el.askText.value = "（さっきの続き）";
+        el.askText.focus();
+        el.askText.setSelectionRange(el.askText.value.length, el.askText.value.length);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    });
     el.videoStartBtn.addEventListener("click", () => startFlow());
     el.reflectTechList.addEventListener("click", (e) => {
       const b = e.target.closest("[data-rtech]");

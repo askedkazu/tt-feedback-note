@@ -108,6 +108,24 @@
     <!-- =====================================================
          タブ：記録
          ===================================================== -->
+    <main id="tabAsk" class="tab hidden px-4 pb-28 pt-3">
+      <section class="card">
+        <p class="section-title">💬 AIコーチに質問</p>
+        <p class="text-xs text-slate-500 mt-1">卓球のことなら何でも。あなたのプロフィールと最近の記録をふまえて答えます</p>
+        <div id="askChips" class="flex flex-wrap gap-2 mt-3"></div>
+        <textarea id="askText" rows="3" maxlength="500" class="input w-full mt-3" placeholder="例：チキータがネットにかかるのはなぜ？"></textarea>
+        <div class="flex items-center gap-2 mt-2">
+          <select id="askTech" class="input text-sm flex-1 min-w-0"><option value="">関係する技（任意）</option></select>
+          <button id="askBtn" class="btn-primary px-5 py-2 whitespace-nowrap">質問する</button>
+        </div>
+        <p id="askMsg" class="hidden text-sm mt-2 rounded-lg p-2 msg-error whitespace-pre-wrap"></p>
+      </section>
+      <section class="mt-6">
+        <p class="section-title mb-2">これまでの質問</p>
+        <div id="askList" class="space-y-3"></div>
+      </section>
+    </main>
+
     <main id="tabRecord" class="tab hidden px-4 pb-28 pt-3">
       <section class="card">
         <p class="section-title">フォーム点の推移</p>
@@ -331,6 +349,10 @@
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2zM4 21V5M8 7h7"/></svg>
         <span>図鑑</span>
       </button>
+      <button class="tab-btn" data-tab="ask">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 5h16v11H9l-5 4z"/><path stroke-linecap="round" d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.4"/><circle cx="12" cy="14.6" r=".6" fill="currentColor"/></svg>
+        <span>質問箱</span>
+      </button>
       <button class="tab-btn" data-tab="record">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V5M4 19h16M8 15l3-4 3 2 5-6"/></svg>
         <span>記録</span>
@@ -353,6 +375,7 @@
       </div>
       <div id="techBody"></div>
       <button id="techStartBtn" class="btn-primary w-full py-3 mt-5">この技を練習する</button>
+      <button id="techAskBtn" class="btn-ghost w-full py-3 mt-2">💬 この技について質問する</button>
     </section>
   </div>
 
