@@ -280,7 +280,7 @@
           <div class="space-y-2">${state.patterns
             .map(
               (pt) => `<button class="tech-item" data-pattern="${pt.id}">
-                <span class="tech-icon">🧩</span>
+                <span class="rally-thumb">${state.patternThumbs?.[pt.id] || "🧩"}</span>
                 <span class="flex-1 min-w-0">
                   <span class="block font-bold text-sm">${escapeHtml(pt.name)}</span>
                   <span class="block text-xs text-slate-500 truncate">${pt.who === "serve" ? "自分のサーブから" : "相手のサーブから"}・${pt.shots.length}球</span>
@@ -1770,6 +1770,10 @@ ${q}
   import("./rally.js")
     .then((m) => {
       state.patterns = m.PATTERNS;
+      // 一覧に出す小さな図解（上から見た図）
+      state.patternThumbs = Object.fromEntries(
+        m.PATTERNS.map((pt) => [pt.id, m.rallyDiagram(m.buildRally(pt), { mirror: isLefty() ? -1 : 1, labels: false, ball: false })])
+      );
       if (state.tab === "book") renderBook();
     })
     .catch((err) => console.error(err));

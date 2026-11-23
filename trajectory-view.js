@@ -9,7 +9,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { SHOTS, TABLE, solveShot, simulate, contactRacket } from "./physics.js";
-import { buildRally } from "./rally.js";
+import { buildRally, rallyDiagram } from "./rally.js";
 
 // 物理の座標（x:長さ, y:横, z:高さ）→ three.js の座標（y が上）
 // 左利きのときは MIRROR = -1 にして、横方向（物理の y）を反転して表示する
@@ -84,6 +84,7 @@ const VIEWS = {
   impact: { label: "インパクト" }, // 打つ瞬間の拡大（位置は技ごとに計算）
   grip: { label: "持ち方" }, // ラケットを持つ手を追いかける
   eye: { label: "自分視点" }, // 選手の目の高さから見る
+  diagram: { label: "図解" }, // 上から見た図（組み立てだけ）
 };
 const RATES = [
   { label: "1/4", value: 0.25 },
@@ -1236,7 +1237,18 @@ class RallyView extends TrajectoryView {
     this.playing = true;
     const last = this.shots.at(-1);
     this.duration = last.t0 + last.sim.points.at(-1).t;
-    this.start("back");
+    this.start("diagram");
+  }
+
+  setView(key) {
+    // 図解は3Dのカメラを使わず、上から見た図を重ねる
+    this.diagram = key === "diagram";
+    this.root.querySelector(".rally-diagram").classList.toggle("hidden", !this.diagram);
+    this.root.classList.toggle("diagram-on", this.diagram);
+    this.canvas.style.visibility = this.diagram ? "hidden" : "visible";
+    super.setView(this.diagram ? "top" : key);
+    this.viewKey = key;
+    this.root.querySelectorAll("[data-view]").forEach((b) => b.classList.toggle("on", b.dataset.view === key));
   }
 
   buildDom() {
@@ -1244,9 +1256,9 @@ class RallyView extends TrajectoryView {
       .map((s, i) => `<li data-step="${i}"><b>${CIRCLED[i]} ${s.who === "me" ? "自分" : "相手"}</b>${lr(s.label)}</li>`)
       .join("");
     const tips = this.pattern.tips.map((t) => `<li>${lr(t)}</li>`).join("");
-    const views = ["back", "side", "top", "front", "eye"];
+    const views = ["diagram", "back", "side", "top", "front", "eye"];
     const root = document.createElement("div");
-    root.className = "traj-overlay";
+    root.className = "traj-overlay rally-view";
     root.innerHTML = `
       <div class="traj-head">
         <button class="traj-close" aria-label="閉じる">✕</button>
@@ -1255,7 +1267,7 @@ class RallyView extends TrajectoryView {
           <p class="traj-sub">${this.pattern.who === "serve" ? "自分のサーブから" : "相手のサーブから"}・オレンジ＝自分の打球、水色＝相手の打球</p>
         </div>
       </div>
-      <div class="traj-stage"><canvas></canvas><p class="traj-clock"></p></div>
+      <div class="traj-stage"><canvas></canvas><div class="rally-diagram hidden"></div><p class="traj-clock"></p></div>
       <div class="traj-panel">
         <ol class="rally-steps">${steps}</ol>
         <ul class="rally-tips">${tips}</ul>
@@ -1390,6 +1402,7 @@ class RallyView extends TrajectoryView {
     this.root.querySelectorAll(".rally-steps li").forEach((li) => li.classList.toggle("on", Number(li.dataset.step) === Math.max(0, i)));
 
     if (this.viewKey === "eye") this.updateEye();
+    if (this.diagram) this.root.querySelector(".rally-diagram").innerHTML = rallyDiagram(this.shots, { t, mirror: MIRROR });
     const step = this.shots[Math.max(0, i)];
     this.clock.textContent = `${CIRCLED[Math.max(0, i)]} ${step.who === "me" ? "自分" : "相手"}：${lr(step.label)}`;
     this.controls.update();

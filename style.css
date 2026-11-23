@@ -655,6 +655,19 @@ select.input option { background: var(--surface); }
 .traj-rec:disabled { color: #fca5a5; }
 .traj-foot { font-size: 0.68rem; color: #64748b; }
 
+/* 組み立ての画面：図を大きく、説明は下でスクロール */
+.rally-view .traj-stage { min-height: 52vh; }
+.rally-view .traj-panel { max-height: 48vh; overflow-y: auto; }
+.rally-view.diagram-on .traj-clock { display: none; }
+/* 組み立ての図解（上から見た図） */
+.rally-diagram { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 0.5rem; }
+.rally-diagram svg, .rally-thumb svg { height: 100%; width: auto; max-width: 100%; }
+.rally-num { fill: #fff; font: 800 13px "M PLUS 1p", sans-serif; }
+.rally-label { fill: #e8eef9; font: 700 12px "M PLUS 1p", sans-serif; paint-order: stroke; stroke: #0a1020; stroke-width: 3px; }
+.rally-side { fill: var(--sub); font: 700 12px "M PLUS 1p", sans-serif; }
+.rally-thumb { width: 4rem; height: 5.4rem; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.rally-thumb .rally-label, .rally-thumb .rally-side { display: none; }
+
 /* ---------- 質問箱 ---------- */
 .qa-item { background: var(--surface); border: 1px solid var(--line); border-radius: 1.1rem; padding: 1rem; }
 .qa-q { font-weight: 800; color: var(--text); font-size: 0.95rem; }
