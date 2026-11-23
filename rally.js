@@ -265,31 +265,101 @@ export function rallyDiagram(shots, { t = Infinity, mirror = 1, labels = true, b
   });
   // 打つ位置の番号（線の上に重ねる）。近くに前の番号があるときは、重ならないようにずらす
   const placed = [];
-  const labelsAt = [];
   shots.forEach((s, i) => {
     if (t < s.t0 && i > 0) return;
     const p = s.sim.points[0].p;
     let x = px(p), y = py(p);
     while (placed.some((q) => Math.hypot(q[0] - x, q[1] - y) < 20)) x += x < vw / 2 ? -20 : 20;
-    placed.push([x, y]);
+    placed.push([x, y, s, i]);
+  });
+  for (const [x, y, s, i] of placed) {
     const c = COLORS[s.who];
     svg += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="11" fill="${c.dot}" stroke="#fff" stroke-width="2"/>
       <text x="${x.toFixed(1)}" y="${(y + 4.5).toFixed(1)}" text-anchor="middle" class="rally-num">${CIRC[i]}</text>`;
-    if (labels) {
-      // 台の外側（左右の空いている方）に技の名前を書く。近くに名前があれば上下にずらす
+  }
+  // 技の名前：台の外側（空いている方）に書く。ほかの名前や番号と重なるときは、反対側か上下にずらす
+  if (labels) {
+    const labelsAt = [];
+    for (const [x, y, s] of placed) {
       const text = shortLabel(s);
       const tw = text.length * 12 + 4; // 文字の幅（だいたい）
-      let right = x >= vw / 2;
-      if (right && x + 15 + tw > vw) right = false; // 右にはみ出すなら左へ
-      if (!right && x - 15 - tw < 0) right = true; // 左にはみ出すなら右へ
-      let ly = y + 4;
-      while (labelsAt.some((q) => q[0] === right && Math.abs(q[1] - ly) < 14)) ly += y < vh / 2 ? 15 : -15;
-      labelsAt.push([right, ly]);
-      svg += `<text x="${(x + (right ? 15 : -15)).toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="${right ? "start" : "end"}" class="rally-label">${text}</text>`;
+      const box = (right, yy) => [right ? x + 15 : x - 15 - tw, right ? x + 15 + tw : x - 15, yy];
+      const fits = (b) => b[0] >= 0 && b[1] <= vw;
+      const hit = (b) =>
+        labelsAt.some((q) => q[0] < b[1] && b[0] < q[1] && Math.abs(q[2] - b[2]) < 14) ||
+        placed.some((q) => q[0] + 11 > b[0] && q[0] - 11 < b[1] && Math.abs(q[1] + 4 - b[2]) < 14);
+      const prefer = x >= vw / 2;
+      let chosen = null;
+      for (let k = 0; k < 8 && !chosen; k++) {
+        const yy = y + 4 + (y < vh / 2 ? 1 : -1) * 15 * k;
+        for (const right of [prefer, !prefer]) {
+          const b = box(right, yy);
+          if (fits(b) && !hit(b)) {
+            chosen = { b, right };
+            break;
+          }
+        }
+      }
+      if (!chosen) chosen = { b: box(prefer, y + 4), right: prefer };
+      labelsAt.push(chosen.b);
+      const tx = chosen.right ? chosen.b[0] : chosen.b[1];
+      svg += `<text x="${tx.toFixed(1)}" y="${chosen.b[2].toFixed(1)}" text-anchor="${chosen.right ? "start" : "end"}" class="rally-label">${text}</text>`;
     }
-  });
+  }
   if (ball && ballPos && Number.isFinite(t)) {
     svg += `<circle cx="${px(ballPos).toFixed(1)}" cy="${py(ballPos).toFixed(1)}" r="6" fill="#fff" stroke="#0a1020" stroke-width="1.5"/>`;
   }
   return svg + "</svg>";
+}
+
+/* ----------------------------------------------------------
+   自分の組み立てを作る（サーブ・待つ返球・3球目を選ぶ）
+   ※座標はすべて「打つ人から見た座標」。相手の返球の y は、相手から見た向き（自分のバック側＝相手から見て y<0）
+   ---------------------------------------------------------- */
+export const SERVE_OPTIONS = [
+  { id: "bs-short", name: "下回転サーブ（短く）", length: "short", shot: { tech: "bs-serve", p0: [-1.6, 0.45, 0.93], speed: 6, spin: [0, -40, 0], target: [-1.15, 0.35] } },
+  { id: "bs-half", name: "下回転サーブ（ハーフロング）", length: "half", shot: { tech: "bs-serve", p0: [-1.6, 0.3, 0.93], speed: 7, spin: [0, -30, 0], target: [-1.2, 0.3] } },
+  { id: "pendulum", name: "順横回転サーブ", length: "short", shot: { tech: "pendulum", p0: [-1.6, 0.45, 0.95], speed: 7, spin: [0, -15, -45], target: [-1.0, 0.3] } },
+  { id: "reverse", name: "巻き込みサーブ", length: "short", shot: { tech: "reverse", p0: [-1.6, 0.0, 0.95], speed: 7, spin: [0, -30, 40], target: [-1.0, 0.0] } },
+  { id: "long", name: "ロングサーブ", length: "long", shot: { tech: "pendulum", p0: [-1.6, 0.4, 0.95], speed: 9, spin: [0, 10, -30], target: [-1.2, 0.45] } },
+];
+export const RECEIVE_OPTIONS = [
+  { id: "push-bh", name: "ツッツキ（自分のバックへ）", fits: ["short", "half"], shot: { tech: "push", speed: 6, spin: [0, -20, 0], target: [1.1, -0.4], timing: "apex" } },
+  { id: "push-fh", name: "ツッツキ（自分のフォアへ）", fits: ["short", "half"], shot: { tech: "fh-push", speed: 6, spin: [0, -20, 0], target: [1.05, 0.4], timing: "apex" } },
+  { id: "push-mid", name: "ツッツキ（ミドルへ浮く）", fits: ["short", "half"], shot: { tech: "push", speed: 6, spin: [0, -10, 0], target: [1.05, 0.0], timing: "apex" } },
+  { id: "flick", name: "フリック・チキータ（自分のバックへ）", fits: ["short"], shot: { tech: "chiquita", speed: 10, spin: [0, 45, 30], target: [1.0, -0.35], timing: "apex" } },
+  { id: "drive-bh", name: "ドライブ（自分のバックへ）", fits: ["half", "long"], shot: { tech: "fh-loop-under", speed: 12, spin: [0, 60, 0], target: [1.0, -0.35], timing: "fall" } },
+  { id: "drive-fh", name: "ドライブ（自分のフォアへ）", fits: ["half", "long"], shot: { tech: "fh-loop-under", speed: 12, spin: [0, 60, 0], target: [1.0, 0.35], timing: "fall" } },
+];
+export const THIRD_OPTIONS = [
+  { id: "fh-drive", name: "フォアドライブ", shot: { tech: "fh-loop-under", speed: 13, spin: [0, 70, 0], target: [1.05, -0.3], timing: "apex" } },
+  { id: "pivot", name: "回り込んでフォアドライブ", shot: { tech: "fh-loop-under", speed: 14, spin: [0, 65, 0], target: [1.05, -0.35], timing: "apex" } },
+  { id: "bh-drive", name: "バックドライブ", shot: { tech: "bh-loop", speed: 15, spin: [0, 50, 0], target: [1.05, -0.35], timing: "apex" } },
+  { id: "counter", name: "カウンター", shot: { tech: "counter", speed: 18, spin: [0, 50, 0], target: [1.05, 0.3], timing: "rise" } },
+  { id: "block", name: "ブロック", shot: { tech: "block", speed: 9, spin: [0, 15, 0], target: [0.9, 0.3], timing: "rise" } },
+  { id: "smash", name: "スマッシュ（浮いた球を強打）", shot: { tech: "fh-loop-top", speed: 20, spin: [0, 20, 0], target: [1.1, 0.0], timing: "apex" } },
+];
+
+/** 選んだサーブ・返球・3球目から、組み立てを作る */
+export function makeCustomPattern({ serve, receive, third, id, name } = {}) {
+  const s = SERVE_OPTIONS.find((x) => x.id === serve);
+  const r = RECEIVE_OPTIONS.find((x) => x.id === receive);
+  const t3 = THIRD_OPTIONS.find((x) => x.id === third);
+  if (!s || !r || !t3) return null;
+  return {
+    id: id || `custom-${serve}-${receive}-${third}`,
+    custom: { serve, receive, third },
+    name: name || `${s.name.split("（")[0]} → ${t3.name.split("（")[0]}`,
+    who: "serve",
+    tips: [
+      `やりたいプレー：3球目で${t3.name}`,
+      `そのために：${s.name}を出して、${r.name}を待つ`,
+      "相手がいつも思いどおりに返すとは限らない。返ってきやすいボールを考えるのが組み立て",
+    ],
+    shots: [
+      { who: "me", label: s.name, short: s.name.split("（")[0], ...s.shot },
+      { who: "opp", label: r.name, short: r.name.split("（")[0], ...r.shot },
+      { who: "me", label: t3.name, short: t3.name.split("（")[0], ...t3.shot, form: t3.id === "pivot" ? "fhDrive" : undefined },
+    ],
+  };
 }

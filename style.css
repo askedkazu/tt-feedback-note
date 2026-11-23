@@ -668,6 +668,12 @@ select.input option { background: var(--surface); }
 .rally-thumb { width: 4rem; height: 5.4rem; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
 .rally-thumb .rally-label, .rally-thumb .rally-side { display: none; }
 
+.build-thumb { width: 5.5rem; height: 7.4rem; }
+.think-card { background: var(--surface); border: 1px solid var(--line); border-radius: 1rem; padding: 0.9rem 1rem; }
+.think-card ol { list-style: decimal; padding-left: 1.2rem; display: grid; gap: 0.35rem; font-size: 0.82rem; color: #c3cee3; margin-top: 0.4rem; }
+.think-card ol b { color: var(--text); }
+.custom-del { font-size: 0.75rem; color: var(--muted); padding: 0.4rem; }
+
 /* ---------- 質問箱 ---------- */
 .qa-item { background: var(--surface); border: 1px solid var(--line); border-radius: 1.1rem; padding: 1rem; }
 .qa-q { font-weight: 800; color: var(--text); font-size: 0.95rem; }

@@ -1279,7 +1279,7 @@ class RallyView extends TrajectoryView {
           <div class="traj-seg traj-views" data-group="view">${views.map((k) => `<button data-view="${k}">${VIEWS[k].label}</button>`).join("")}</div>
         </div>
         <button class="traj-rec">🎬 動画として保存</button>
-        <p class="traj-foot">参考：わったさん（YouTube）の動画。打球は物理計算による例です（相手も${MIRROR < 0 ? "左" : "右"}利き）。</p>
+        <p class="traj-foot">${this.pattern.custom ? "自分で作った組み立て" : "参考：わったさん（YouTube）の動画"}。打球は物理計算による例です（相手も${MIRROR < 0 ? "左" : "右"}利き）。</p>
       </div>`;
     document.body.appendChild(root);
     document.body.style.overflow = "hidden";

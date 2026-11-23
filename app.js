@@ -23,6 +23,7 @@
     profile: "ttNote.profile",
     sessions: "ttNote.sessions", // 記録のキャッシュ（ログインしていないときは、これが本体）
     questions: "ttNote.questions", // 質問箱（同じく）
+    customPatterns: "ttNote.customPatterns", // 自分で作った組み立て
     bests: "ttNote.bests",
   };
 
@@ -88,6 +89,8 @@
     patterns: [], // 組み立て（rally.js）
     questions: loadJSON(LS.questions, []), // 質問箱：{ id, ts, q, techId, answer, points, remember, techIds }（新しい順）
     asking: false,
+    customPatterns: loadJSON(LS.customPatterns, []), // { id, serve, receive, third }
+    rallyMod: null,
   };
 
   /* ==========================================================
@@ -134,6 +137,7 @@
     node.classList.toggle("hidden", !text);
   }
   function persistLocal() {
+    saveJSON(LS.customPatterns, state.customPatterns);
     saveJSON(LS.questions, state.questions);
     saveJSON(LS.sessions, state.sessions);
     saveJSON(LS.bests, state.bests);
@@ -274,21 +278,41 @@
     el.bookNote.textContent = isLefty()
       ? "左利き用に、左右を入れかえて表示しています（設定タブの利き手で変えられます）。タップでコツ・よくあるミス・自分の記録が見られます。"
       : "右利き・シェークハンドを基準に書いています。タップでコツ・よくあるミス・自分の記録が見られます。";
+    const patternCard = (pt, custom = false) => `<div class="flex items-center gap-1">
+        <button class="tech-item flex-1" data-pattern="${pt.id}">
+          <span class="rally-thumb">${patternThumb(pt)}</span>
+          <span class="flex-1 min-w-0">
+            <span class="block font-bold text-sm">${escapeHtml(pt.name)}</span>
+            <span class="block text-xs text-slate-500 truncate">${custom ? "自分で作った組み立て" : pt.who === "serve" ? "自分のサーブから" : "相手のサーブから"}・${pt.shots.length}球</span>
+          </span>
+          <span class="text-xs text-slate-400">▶ 図解</span>
+        </button>
+        ${custom ? `<button class="custom-del" data-delpattern="${pt.id}" aria-label="消す">✕</button>` : ""}
+      </div>`;
+    const customs = customPatternObjs();
     const patternsHtml = state.patterns.length
       ? `<section><p class="cat-title">組み立て（3球目まで）</p>
-          <p class="text-xs text-slate-500 mb-2">サーブから3〜4球目までを、自分と相手の2人で3D再生。参考：わったさん（YouTube）</p>
-          <div class="space-y-2">${state.patterns
-            .map(
-              (pt) => `<button class="tech-item" data-pattern="${pt.id}">
-                <span class="rally-thumb">${state.patternThumbs?.[pt.id] || "🧩"}</span>
-                <span class="flex-1 min-w-0">
-                  <span class="block font-bold text-sm">${escapeHtml(pt.name)}</span>
-                  <span class="block text-xs text-slate-500 truncate">${pt.who === "serve" ? "自分のサーブから" : "相手のサーブから"}・${pt.shots.length}球</span>
-                </span>
-                <span class="text-xs text-slate-400">▶ 3D</span>
-              </button>`
-            )
-            .join("")}</div></section>`
+          <div class="think-card mb-3">
+            <p class="text-sm font-bold">💡 組み立ての考え方</p>
+            <ol>
+              <li><b>やりたいプレーから逆算</b>：まず「3球目でバックドライブを打ちたい」のように、自分がやりたいプレーを決め、そのボールが返ってくるサーブを選ぶ</li>
+              <li><b>相手が嫌がるサーブも混ぜる</b>：自分のやりやすさを優先しつつ。自分がどんなボールなら打ちやすいかを知っておく</li>
+              <li><b>迷ったらロングサーブ</b>：ロングを意識させると、短いサーブへの相手の対応が変わる</li>
+              <li><b>練習から試合を意識</b>：練習相手が取りやすいサーブばかりにせず、試合で使う展開を練習のときから</li>
+            </ol>
+            <p class="text-xs text-slate-500 mt-2">参考：濱川さん「サーブからの組み立て方」（YouTube）</p>
+          </div>
+          <button id="buildOpenBtn" class="swing-card mb-3">
+            <span class="swing-card-icon">✏️</span>
+            <span class="flex-1 min-w-0 text-left">
+              <span class="block font-extrabold">自分の組み立てを作る</span>
+              <span class="block text-xs text-slate-500">やりたいプレー・サーブ・待つ返球を選んで、図解と3Dで確かめる</span>
+            </span>
+            <span class="swing-card-go">→</span>
+          </button>
+          ${customs.length ? `<div class="space-y-2 mb-3">${customs.map((pt) => patternCard(pt, true)).join("")}</div>` : ""}
+          <p class="text-xs text-slate-500 mb-2">お手本の組み立て。参考：わったさん（YouTube）</p>
+          <div class="space-y-2">${state.patterns.map((pt) => patternCard(pt)).join("")}</div></section>`
       : "";
     el.bookList.innerHTML = patternsHtml + CATS.map((cat) => {
       const items = TECHS.filter((t) => t.cat === cat.id)
@@ -1496,6 +1520,11 @@ ${q}
       getDocs(query(collection(cloud.db, "tt_users", uid, "questions"), orderBy("ts", "desc"), limit(200))),
     ]);
     const data = userSnap.exists() ? userSnap.data() : null;
+    if (Array.isArray(data?.customPatterns)) {
+      // この端末で作ったものも残す
+      const ids = new Set(data.customPatterns.map((x) => x.id));
+      state.customPatterns = [...data.customPatterns, ...state.customPatterns.filter((x) => !ids.has(x.id))];
+    }
     if (data?.profile) {
       state.profile = { ...DEFAULT_PROFILE, ...data.profile };
       saveJSON(LS.profile, state.profile);
@@ -1529,7 +1558,7 @@ ${q}
   async function pushUserDoc() {
     if (!cloud.user) return;
     const { doc, setDoc } = cloud.fs;
-    await setDoc(doc(cloud.db, "tt_users", cloud.user.uid), { profile: state.profile, bests: state.bests, updatedAt: Date.now() }).catch((err) =>
+    await setDoc(doc(cloud.db, "tt_users", cloud.user.uid), { profile: state.profile, bests: state.bests, customPatterns: state.customPatterns, updatedAt: Date.now() }).catch((err) =>
       console.error(err)
     );
   }
@@ -1579,6 +1608,9 @@ ${q}
       }
       const pt = e.target.closest("[data-pattern]");
       if (pt) return openPattern(pt.dataset.pattern, pt);
+      const dp = e.target.closest("[data-delpattern]");
+      if (dp) return deleteCustomPattern(dp.dataset.delpattern);
+      if (e.target.closest("#buildOpenBtn")) return openBuilder();
       const tr = e.target.closest("[data-traj]");
       if (tr) return openTrajectory(tr.dataset.traj, tr);
       const t = e.target.closest("[data-tech]");
@@ -1600,6 +1632,26 @@ ${q}
     });
 
     el.startBtn.addEventListener("click", startReflect);
+    // 自分の組み立てを作る
+    el.buildServe.addEventListener("change", () => {
+      renderBuildReceive();
+      updateBuild();
+    });
+    el.buildReceive.addEventListener("change", updateBuild);
+    el.buildThird.addEventListener("change", updateBuild);
+    el.buildSaveBtn.addEventListener("click", saveBuild);
+    el.buildAskBtn.addEventListener("click", askAboutBuild);
+    el.buildViewBtn.addEventListener("click", async () => {
+      const m = state.rallyMod;
+      const pat = m.makeCustomPattern(currentBuild());
+      closeModal(el.buildModal);
+      try {
+        (await import("./trajectory-view.js")).openRally(pat, { lefty: isLefty() });
+      } catch (err) {
+        console.error(err);
+        alert(`読み込めませんでした。\n${err.message}`);
+      }
+    });
     // 質問箱
     el.askBtn.addEventListener("click", ask);
     el.askChips.addEventListener("click", (e) => {
@@ -1741,8 +1793,84 @@ ${q}
     }
   }
 
+  /* ---------- 組み立て：一覧の図解と、自分で作る組み立て ---------- */
+  function customPatternObjs() {
+    if (!state.rallyMod) return [];
+    return state.customPatterns.map((c) => state.rallyMod.makeCustomPattern(c)).filter(Boolean);
+  }
+  const thumbCache = new Map();
+  function patternThumb(pt) {
+    const m = state.rallyMod;
+    if (!m) return "🧩";
+    const key = `${pt.id}:${isLefty() ? "L" : "R"}`;
+    if (!thumbCache.has(key)) thumbCache.set(key, m.rallyDiagram(m.buildRally(pt), { mirror: isLefty() ? -1 : 1, labels: false, ball: false }));
+    return thumbCache.get(key);
+  }
+
+  function openBuilder() {
+    const m = state.rallyMod;
+    if (!m) return;
+    const opts = (list) => list.map((x) => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join("");
+    const last = state.lastBuild || {};
+    el.buildThird.innerHTML = opts(m.THIRD_OPTIONS);
+    el.buildServe.innerHTML = opts(m.SERVE_OPTIONS);
+    if (last.third) el.buildThird.value = last.third;
+    if (last.serve) el.buildServe.value = last.serve;
+    renderBuildReceive();
+    if (last.receive && [...el.buildReceive.options].some((o) => o.value === last.receive)) el.buildReceive.value = last.receive;
+    openModal(el.buildModal);
+    updateBuild();
+  }
+  function renderBuildReceive() {
+    const m = state.rallyMod;
+    const serve = m.SERVE_OPTIONS.find((x) => x.id === el.buildServe.value);
+    const cur = el.buildReceive.value;
+    const list = m.RECEIVE_OPTIONS.filter((r) => r.fits.includes(serve.length));
+    el.buildReceive.innerHTML = list.map((x) => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join("");
+    if (list.some((x) => x.id === cur)) el.buildReceive.value = cur;
+  }
+  function currentBuild() {
+    return { serve: el.buildServe.value, receive: el.buildReceive.value, third: el.buildThird.value };
+  }
+  function updateBuild() {
+    const m = state.rallyMod;
+    state.lastBuild = currentBuild(); // 開き直したときに同じ選択にする
+    const pat = m.makeCustomPattern(currentBuild());
+    if (!pat) return;
+    const shots = m.buildRally(pat);
+    const ok = shots.length === pat.shots.length && shots.every((x) => x.ok);
+    el.buildPreview.innerHTML = m.rallyDiagram(shots, { mirror: isLefty() ? -1 : 1, labels: false, ball: false });
+    el.buildStatus.innerHTML = ok
+      ? `<b class="text-emerald-600">✓ 3球目まで台に入りました</b><br><span class="text-xs text-slate-500">${escapeHtml(pat.name)}</span>`
+      : `<b class="text-amber-800">⚠ この組み合わせは台に入りにくい</b><br><span class="text-xs text-slate-500">物理計算では入りませんでした。返球の高さや回転に合った3球目を選んでみよう（図解で入らない様子も見られます）</span>`;
+  }
+  async function saveBuild() {
+    const c = currentBuild();
+    const id = `custom-${c.serve}-${c.receive}-${c.third}`;
+    if (!state.customPatterns.some((x) => x.id === id)) state.customPatterns.unshift({ id, ...c });
+    persistLocal();
+    closeModal(el.buildModal);
+    renderBook();
+    await pushUserDoc();
+  }
+  async function deleteCustomPattern(id) {
+    if (!confirm("この組み立てを消しますか？")) return;
+    state.customPatterns = state.customPatterns.filter((x) => x.id !== id);
+    persistLocal();
+    renderBook();
+    await pushUserDoc();
+  }
+  function askAboutBuild() {
+    const m = state.rallyMod;
+    const t3 = m.THIRD_OPTIONS.find((x) => x.id === el.buildThird.value);
+    const sv = m.SERVE_OPTIONS.find((x) => x.id === el.buildServe.value);
+    closeModal(el.buildModal);
+    openAsk(t3.shot.tech);
+    el.askText.value = `3球目で${t3.name}を打ちたい。${sv.name}を出すのはいい組み立て？ほかにどんなサーブを出して、どんな返球を待つといい？`;
+  }
+
   async function openPattern(id, btn) {
-    const pattern = state.patterns.find((x) => x.id === id);
+    const pattern = state.patterns.find((x) => x.id === id) || customPatternObjs().find((x) => x.id === id);
     if (!pattern) return;
     btn.disabled = true;
     try {
@@ -1769,11 +1897,8 @@ ${q}
     .catch((err) => console.error(err));
   import("./rally.js")
     .then((m) => {
+      state.rallyMod = m;
       state.patterns = m.PATTERNS;
-      // 一覧に出す小さな図解（上から見た図）
-      state.patternThumbs = Object.fromEntries(
-        m.PATTERNS.map((pt) => [pt.id, m.rallyDiagram(m.buildRally(pt), { mirror: isLefty() ? -1 : 1, labels: false, ball: false })])
-      );
       if (state.tab === "book") renderBook();
     })
     .catch((err) => console.error(err));

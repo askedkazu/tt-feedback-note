@@ -379,6 +379,37 @@
     </section>
   </div>
 
+  <!-- 自分の組み立てを作る -->
+  <div id="buildModal" class="hidden modal-backdrop">
+    <section class="modal-sheet">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="font-bold text-lg">✏️ 自分の組み立てを作る</h2>
+        <button class="icon-btn modal-close" aria-label="閉じる">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <p class="text-xs text-slate-500">まず「3球目でやりたいプレー」を決めて、そのボールが返ってきやすいサーブを選ぶのが組み立てのコツ</p>
+      <label class="field-mini block mt-3">① 3球目でやりたいプレー
+        <select id="buildThird" class="input w-full mt-1"></select>
+      </label>
+      <label class="field-mini block mt-3">② 出すサーブ
+        <select id="buildServe" class="input w-full mt-1"></select>
+      </label>
+      <label class="field-mini block mt-3">③ 待つ返球（相手のレシーブ）
+        <select id="buildReceive" class="input w-full mt-1"></select>
+      </label>
+      <div class="flex gap-3 items-center mt-4">
+        <div id="buildPreview" class="rally-thumb build-thumb"></div>
+        <p id="buildStatus" class="text-sm flex-1"></p>
+      </div>
+      <div class="grid grid-cols-2 gap-2 mt-4">
+        <button id="buildViewBtn" class="btn-ghost py-3">図解・3Dで見る</button>
+        <button id="buildSaveBtn" class="btn-primary py-3">保存する</button>
+      </div>
+      <button id="buildAskBtn" class="btn-ghost w-full py-3 mt-2">💬 AIコーチに相談する</button>
+    </section>
+  </div>
+
   <!-- 記録の詳細 -->
   <div id="sessionModal" class="hidden modal-backdrop">
     <section class="modal-sheet">
